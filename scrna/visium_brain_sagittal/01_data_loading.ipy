@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Data loading for 10x Visium mouse brain sagittal section anterior 1.
+
+Created on Sat Jun  5 15:22:19 2021
+
+@author: townesf
+"""
+
+# %% imports
+import random
+import numpy as np
+import scanpy as sc
+from os import path
+from scipy import sparse
+
+from utils import preprocess, training, misc
+
+random.seed(101)
+pth = "scrna/visium_brain_sagittal"
+
+# %% Download original data files
+%%sh
+mkdir -p scrna/visium_brain_sagittal/data/original
+pushd scrna/visium_brain_sagittal/data/original
+wget https://cf.10xgenomics.com/samples/spatial-exp/1.1.0/V1_Mouse_Brain_Sagittal_Anterior/V1_Mouse_Brain_Sagittal_Anterior_filtered_feature_bc_matrix.h5
+wget https://cf.10xgenomics.com/samples/spatial-exp/1.1.0/V1_Mouse_Brain_Sagittal_Anterior/V1_Mouse_Brain_Sagittal_Anterior_spatial.tar.gz
+tar -xzf V1_Mouse_Brain_Sagittal_Anterior_spatial.tar.gz
+rm V1_Mouse_Brain_Sagittal_Anterior_spatial.tar.gz
+popd
+
+# %% Desiderata for dataset [markdown]
+# 1. Spatial coordinates
+# 2. Features sorted in decreasing order of deviance
+# 3. Observations randomly shuffled
+
+# %% QC, loosely following MEFISTO tutorials
+# https://nbviewer.jupyter.org/github/bioFAM/MEFISTO_tutorials/blob/master/MEFISTO_ST.ipynb#QC-and-preprocessing
+ad = sc.read_visium(path.join(pth,"data/original"),
+                    count_file="V1_Mouse_Brain_Sagittal_Anterior_filtered_feature_bc_matrix.h5")
+ad.var_names_make_unique()
+ad.var["mt"] = ad.var_names.str.startswith("mt-")
+sc.pp.calculate_qc_metrics(ad, qc_vars=["mt"], inplace=True)
+ad = ad[ad.obs.pct_counts_mt < 20]
+sc.pp.filter_genes(ad, min_cells=1)
+sc.pp.filter_cells(ad, min_counts=100)
+ad.layers = {"counts":ad.X.copy()} #store raw counts before normalization changes ad.X
+sc.pp.normalize_total(ad, inplace=True, layers=None, key_added="sizefactor")
+sc.pp.log1p(ad)
+#Y = misc.reverse_normalization(np.expm1(ad.X),ad.obs["sizefactor"])
+#np.max(np.abs(Y-np.layers["counts"]))
+
+# %% normalization, feature selection and train/test split
+ad.var['deviance_poisson'] = preprocess.deviancePoisson(ad.layers["counts"])
+o = np.argsort(-ad.var['deviance_poisson'])
+idx = list(range(ad.shape[0]))
+random.shuffle(idx)
+ad = ad[idx,o]
+ad.write_h5ad(path.join(pth,"data/visium_brain_sagittal.h5ad"),compression="gzip")
+#ad = sc.read_h5ad(path.join(pth,"data/visium_brain_sagittal.h5ad"))
+ad2 = ad[:,:2000]
+ad2.write_h5ad(path.join(pth,"data/visium_brain_sagittal_J2000.h5ad"),compression="gzip")

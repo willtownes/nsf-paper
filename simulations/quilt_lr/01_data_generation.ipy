@@ -1,0 +1,109 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .ipy
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.6.0
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+# %%
+import numpy as np
+# import matplotlib.pyplot as plt
+from os import path
+from pandas import get_dummies
+from anndata import AnnData
+from scanpy import pp
+
+from utils import misc,preprocess,visualize
+
+rng = np.random.default_rng(101)
+dtp = "float32"
+pth = "simulations/quilt_lr"
+dpth = path.join(pth,"data")
+# misc.mkdir_p(dpth)
+
+# %%
+def squares():
+  A = np.zeros([12,12])
+  A[1:5,1:5] = 1
+  A[7:11,1:5] = 1
+  A[1:5,7:11] = 1
+  A[7:11,7:11] = 1
+  return A
+
+def corners():
+  B = np.zeros([6,6])
+  for i in range(6):
+    B[i,i:] = 1
+  A = np.flip(B,axis=1)
+  AB = np.hstack((A,B))
+  CD = np.flip(AB,axis=0)
+  return np.vstack((AB,CD))
+
+def scotland():
+  A = np.eye(12)
+  for i in range(12):
+    A[-i-1,i] = 1
+  return A
+
+def checkers():
+  A = np.zeros([4,4])
+  B = np.ones([4,4])
+  AB = np.hstack((A,B,A))
+  BA = np.hstack((B,A,B))
+  return np.vstack((AB,BA,AB))
+
+def generate_quilt():
+  A = np.zeros([4,144])
+  A[0,:] = squares().flatten()
+  A[1,:] = corners().flatten()
+  A[2,:] = scotland().flatten()
+  A[3,:] = checkers().flatten()
+  return A
+
+ncopy = 3
+nside = ncopy*12
+N = (nside)**2
+X = misc.make_grid(N)
+X[:,1] = -X[:,1] #make the display the same
+X = preprocess.rescale_spatial_coords(X)
+J = 500
+L = 4
+A = generate_quilt()
+A = A.reshape((L,12,12))
+A = np.kron(A,np.ones((1,ncopy,ncopy)))
+Ftrue = A.reshape((L,N)).T #NxL
+visualize.multiheatmap(X,Ftrue,(1,4),figsize=(4,1),s=10,marker="s",cmap="Blues")
+
+#%%
+w = rng.choice(4,J,replace=True)
+Wtrue = 10.9*get_dummies(w).to_numpy(dtype=dtp) #JxL indicator matrix
+v = rng.choice(3,J,replace=True)
+Vtrue = 8.9*get_dummies(v).to_numpy(dtype=dtp) #Jx2 indicator matrix
+Utrue = rng.binomial(1,0.2,size=(N,3))
+UVt = Utrue @ Vtrue.T
+Lambda_true = 0.2+Ftrue @ Wtrue.T + UVt #NxJ
+Y = rng.negative_binomial(10,10/(Lambda_true+10))
+visualize.heatmap(X,Y[:,67],s=100,marker="s",cmap="Blues")
+
+#%%
+from sklearn.decomposition import NMF
+fit = NMF(L+3,beta_loss="kullback-leibler",solver="mu",init="nndsvda")
+Fplot = fit.fit_transform(Y)
+hmkw = {"figsize":(4,1.8),"bgcol":"white","subplot_space":0.1,"marker":"s","s":10}
+fig,axes=visualize.multiheatmap(X, Fplot, (2,4), cmap="Blues", **hmkw)
+
+#%% Save as anndata
+ad = AnnData(Y,obsm={"spatial":X,"factors":Ftrue},varm={"loadings":Wtrue})
+ad.layers = {"counts":ad.X.copy()} #store raw counts before normalization changes ad.X
+pp.normalize_total(ad, inplace=True, layers=None, key_added="sizefactor")
+pp.log1p(ad)
+ad.write_h5ad(path.join(dpth,"quilt_lr.h5ad"),compression="gzip")
+visualize.heatmap(ad.obsm["spatial"],ad.obsm["factors"][:,3],s=50,marker="s",figsize=(4.1,4))

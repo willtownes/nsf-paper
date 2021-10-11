@@ -1,0 +1,74 @@
+---
+title: "Benchmarking Visualization"
+author: "Will Townes"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+theme_set(theme_bw())
+fp<-file.path
+pth<-"scrna/xyzeq_liver"
+plt_pth<-fp(pth,"results/plots")
+if(!dir.exists(plt_pth)){
+    dir.create(plt_pth,recursive=TRUE)
+}
+```
+
+MEFISTO converged but having errors when I try to load the results
+
+```{r}
+d0<-read.csv(fp(pth,"results/benchmark.csv"))
+d0$converged<-as.logical(d0$converged)
+d0$model<-plyr::mapvalues(d0$model,c("RCF","RPF","NCF","NPFH","NPF"),c("FA","RSF","PNMF","NSFH","NSF"))
+d<-subset(d0,converged==TRUE)
+d$model<-paste0(d$model," (",d$lik,")")
+unique(d$model)
+# keep<-c("NPF (nb)", "NPF (poi)", "NPFH (nb)", "NPFH (poi)", "NCF (nb)", "NCF (poi)", "RPF (gau)", "RCF (gau)")#"MEFISTO (gau)", 
+keep<-c("FA (gau)","RSF (gau)","PNMF (nb)","PNMF (poi)","NSFH (nb)","NSFH (poi)","NSF (nb)","NSF (poi)")#,"MEFISTO (gau)"
+d<-subset(d,model %in% keep)
+d$model<-factor(d$model,levels=keep)
+d$dim<-factor(d$L,levels=sort(unique(d$L)))
+d$M[is.na(d$M)]<-288
+d$IPs<-factor(d$M,levels=sort(unique(d$M)))
+```
+subset of models for simplified main figure
+```{r}
+d2<-subset(d,M==288 | (model %in% c("PNMF (poi)","FA (gau)")))
+d2a<-subset(d2,(model %in% c("PNMF (poi)","NSFH (poi)","NSF (poi)")) & sz=="scanpy")
+d2b<-subset(d2,model %in% c("FA (gau)","RSF (gau)"))#,"MEFISTO (gau)"))
+d2<-rbind(d2a,d2b)
+d2$model<-factor(d2$model,levels=)
+d2$model<-plyr::mapvalues(d2$model,c("FA (gau)","RSF (gau)","PNMF (poi)","NSFH (poi)","NSF (poi)"),c("FA","RSF","PNMF","NSFH","NSF"))#,"MEFISTO (gau)"
+ggplot(d2,aes(x=model,y=dev_val_mean,color=dim,shape=lik))+geom_point(size=6,position=position_dodge(width=0.8))+ylab("validation deviance (mean)")+ylim(range(d2$dev_val_mean)*c(.95,1.02))
+ggsave(fp(plt_pth,"xyzeq_liver_gof_dev_val_mean_main.pdf"),width=5,height=2.5)
+```
+
+```{r}
+#training deviance - average
+ggplot(d,aes(x=model,y=dev_tr_mean,color=dim,shape=sz))+geom_jitter(size=5,width=.2,height=0)+ylab("training deviance (mean)")+theme(legend.position = "top")
+ggsave(fp(plt_pth,"xyzeq_liver_gof_dev_tr_mean.pdf"),width=6,height=3)
+
+#training deviance - max
+ggplot(d,aes(x=model,y=dev_tr_max,color=dim,shape=sz))+geom_jitter(size=5,width=.2,height=0)+ylab("training deviance (max)")#+scale_y_log10()
+
+#validation deviance - mean
+ggplot(d,aes(x=model,y=dev_val_mean,color=dim,shape=sz))+geom_jitter(size=4,width=.4,height=0)+ylab("validation deviance (mean)")+theme(legend.position="none")
+ggsave(fp(plt_pth,"xyzeq_liver_gof_dev_val_mean.pdf"),width=6,height=2.5)
+
+#validation deviance - max
+ggplot(d,aes(x=model,y=dev_val_max,color=dim,shape=sz))+geom_jitter(size=3,width=.2,height=0)+ylab("validation deviance (max)")#+scale_y_log10()
+
+#sparsity
+ggplot(d,aes(x=model,y=sparsity,color=dim,shape=sz))+geom_jitter(size=4,width=.3,height=0)+ylab("sparsity of loadings")+theme(legend.position="none")
+ggsave(fp(plt_pth,"xyzeq_liver_sparsity.pdf"),width=6,height=2.5)
+
+#wall time
+ggplot(d,aes(x=model,y=wtime/60,color=dim,shape=sz))+geom_jitter(size=5,width=.2,height=0)+ylab("wall time (min)")+scale_y_log10()+theme(legend.position="top")
+ggsave(fp(plt_pth,"xyzeq_liver_wtime.pdf"),width=6,height=3)
+ggplot(d,aes(x=dim,y=wtime/60,color=sz))+geom_jitter(size=3,width=.2,height=0)+ylab("wall time (min)")+scale_y_log10()
+
+#processor time
+ggplot(d,aes(x=model,y=ptime/60,color=dim,shape=sz))+geom_jitter(size=5,width=.2,height=0)+ylab("processor time")+scale_y_log10()+theme(legend.position="none")
+ggsave(fp(plt_pth,"xyzeq_liver_ptime.pdf"),width=6,height=2.5)
+```

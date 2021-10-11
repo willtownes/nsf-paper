@@ -1,0 +1,55 @@
+---
+title: "Slide-seq v2 hippocampus"
+author: "Will Townes"
+output: html_document
+---
+
+```{r}
+library(Seurat)
+library(SeuratData) #remotes::install_github("satijalab/seurat-data")
+library(SeuratDisk) #remotes::install_github("mojaveazure/seurat-disk")
+library(scry) #bioconductor
+
+fp<-file.path
+pth<-"scrna/sshippo"
+dpth<-fp(pth,"data")
+if(!dir.exists(fp(dpth,"original"))){
+    dir.create(fp(dpth,"original"),recursive=TRUE)
+}
+```
+
+Download the Seurat dataset
+
+```{r}
+#InstallData("ssHippo") #run once to store to disk
+slide.seq <- LoadData("ssHippo")
+```
+
+rank genes by deviance
+
+```{r}
+X<-slide.seq@images[[1]]@coordinates
+slide.seq<-AddMetaData(slide.seq,X)
+Y<-slide.seq@assays[[1]]@counts
+#Y<-Y[rowSums(Y)>0,]
+dev<-devianceFeatureSelection(Y,fam="poisson")
+dev[is.na(dev)]<-0
+slide.seq@assays[[1]]<-AddMetaData(slide.seq@assays[[1]], dev, col.name="deviance_poisson")
+
+o<-order(dev,decreasing=TRUE)
+#Y<-Y[o,]
+#dev<-dev[o]
+plot(dev[o],type="l",log="y")
+abline(v=1000,col="red")
+```
+
+Converting to H5AD, based on https://mojaveazure.github.io/seurat-disk/articles/convert-anndata.html
+
+```{r}
+dfile<-fp(dpth,"original/sshippo.h5Seurat")
+SaveH5Seurat(slide.seq, filename=dfile)
+Convert(dfile, dest="h5ad")
+```
+
+
+

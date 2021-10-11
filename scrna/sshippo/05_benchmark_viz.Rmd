@@ -1,0 +1,114 @@
+---
+title: "Benchmarking Visualization"
+author: "Will Townes"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+theme_set(theme_bw())
+fp<-file.path
+pth<-"scrna/sshippo"
+plt_pth<-fp(pth,"results/plots")
+if(!dir.exists(plt_pth)){
+    dir.create(plt_pth,recursive=TRUE)
+}
+```
+
+Convergence failures
+* MEFISTO with L>6 or M>2000 (ran out of memory)
+
+```{r}
+d0<-read.csv(fp(pth,"results/benchmark.csv"))
+d0$converged<-as.logical(d0$converged)
+d0$model<-plyr::mapvalues(d0$model,c("RCF","RPF","NCF","NPFH","NPF"),c("FA","RSF","PNMF","NSFH","NSF"))
+d<-subset(d0,converged==TRUE)
+da<-subset(d,model %in% c("FA","MEFISTO","RSF"))
+db<-subset(d,(model %in% c("PNMF","NSFH","NSF")) & (sz=="scanpy"))
+d<-rbind(da,db)
+d$model<-paste0(d$model," (",d$lik,")")
+unique(d$model)
+keep<-c("FA (gau)","MEFISTO (gau)","RSF (gau)","PNMF (nb)","PNMF (poi)","NSFH (nb)","NSFH (poi)","NSF (nb)","NSF (poi)")
+d<-subset(d,model %in% keep)
+d$model<-factor(d$model,levels=keep)
+d$dim<-factor(d$L,levels=sort(unique(d$L)))
+d$M[is.na(d$M)]<-3000
+d$IPs<-factor(d$M,levels=sort(unique(d$M)))
+```
+subset of models for simplified main figure
+```{r}
+d2<-subset(d,M==2000 | (model %in% c("PNMF (poi)","FA (gau)")))
+d2a<-subset(d2,(model %in% c("PNMF (poi)","NSFH (poi)","NSF (poi)")) & sz=="scanpy")
+d2b<-subset(d2,model %in% c("FA (gau)","RSF (gau)","MEFISTO (gau)"))
+d2<-rbind(d2a,d2b)
+d2$model<-factor(d2$model,levels=)
+d2$model<-plyr::mapvalues(d2$model,c("FA (gau)","MEFISTO (gau)","RSF (gau)","PNMF (poi)","NSFH (poi)","NSF (poi)"),c("FA","MEFISTO","RSF","PNMF","NSFH","NSF"))
+ggplot(d2,aes(x=model,y=dev_val_mean,color=dim,shape=lik))+geom_point(size=6,position=position_dodge(width=0.8))+ylab("validation deviance (mean)")+ylim(range(d2$dev_val_mean)*c(.95,1.02))
+ggsave(fp(plt_pth,"sshippo_gof_dev_val_mean_main.pdf"),width=5,height=2.5)
+
+#time
+ggplot(d2,aes(x=model,y=wtime/60,color=dim,shape=lik))+geom_point(size=6,position=position_dodge(width=0.8))+ylab("time to converge (min)")+ylim(range(d2$wtime/60)*c(.95,1.02))
+ggsave(fp(plt_pth,"sshippo_wtime_simple.pdf"),width=5,height=2.5)
+
+#sparsity
+ggplot(d2,aes(x=model,y=sparsity,color=dim,shape=lik))+geom_point(size=6,position=position_dodge(width=0.8))+ylab("loadings zero fraction")+ylim(range(d2$sparsity)*c(.95,1.02))
+ggsave(fp(plt_pth,"sshippo_sparsity_simple.pdf"),width=5,height=2.5)
+
+#time
+ggplot(d2,aes(x=model,y=wtime/60,color=dim,shape=lik))+geom_point(size=6,position=position_dodge(width=0.8))+ylab("time to converge (min)")+ylim(range(d2$wtime/60)*c(.95,1.02))
+ggsave(fp(plt_pth,"sshippo_wtime_simple.pdf"),width=5,height=2.5)
+```
+NB vs Poi likelihood
+```{r}
+d3<-subset(d,lik %in% c("poi","nb"))
+ggplot(d3,aes(x=model,y=dev_val_mean,color=IPs,shape=dim))+geom_point(size=4,position=position_dodge(width=0.6))+ylab("validation deviance (mean)")
+ggsave(fp(plt_pth,"sshippo_gof_dev_val_nb_vs_poi.pdf"),width=6,height=3)
+#time
+ggplot(d3,aes(x=model,y=wtime/60,color=IPs,shape=dim))+geom_point(size=4,position=position_dodge(width=0.8))+ylab("time to converge (min)")+scale_y_log10()
+ggsave(fp(plt_pth,"sshippo_wtime_nb_vs_poi.pdf"),width=6,height=3)
+```
+
+```{r}
+#training deviance - average
+ggplot(d,aes(x=model,y=dev_tr_mean,color=dim,shape=IPs))+geom_jitter(size=5,width=.2,height=0)+ylab("training deviance (mean)")+theme(legend.position = "top")
+ggsave(fp(plt_pth,"sshippo_gof_dev_tr_mean.pdf"),width=6,height=3)
+
+#training deviance - max
+ggplot(d,aes(x=model,y=dev_tr_max,color=dim,shape=sz))+geom_jitter(size=5,width=.2,height=0)+ylab("training deviance (max)")#+scale_y_log10()
+
+#validation deviance - mean
+ggplot(d,aes(x=model,y=dev_val_mean,color=dim,shape=sz))+geom_jitter(size=4,width=.4,height=0)+ylab("validation deviance (mean)")+theme(legend.position="none")
+ggsave(fp(plt_pth,"sshippo_gof_dev_val_mean.pdf"),width=6,height=2.5)
+
+#validation deviance - max
+ggplot(d,aes(x=model,y=dev_val_max,color=dim,shape=sz))+geom_jitter(size=3,width=.2,height=0)+ylab("validation deviance (max)")#+scale_y_log10()
+
+#sparsity
+ggplot(d,aes(x=model,y=sparsity,color=dim,shape=sz))+geom_jitter(size=4,width=.3,height=0)+ylab("sparsity of loadings")+theme(legend.position="none")
+ggsave(fp(plt_pth,"sshippo_sparsity.pdf"),width=6,height=2.5)
+
+#wall time
+ggplot(d,aes(x=model,y=wtime/3600,color=IPs,shape=dim))+geom_jitter(size=5,width=.2,height=0)+ylab("wall time (hr)")+scale_y_log10()+theme(legend.position="top")
+ggsave(fp(plt_pth,"sshippo_wtime.pdf"),width=6,height=3)
+ggplot(d,aes(x=dim,y=wtime/60,color=IPs,shape=sz))+geom_jitter(size=3,width=.2,height=0)+ylab("wall time (min)")+scale_y_log10()
+
+#processor time
+ggplot(d,aes(x=model,y=ptime/3600,color=IPs,shape=dim))+geom_jitter(size=5,width=.2,height=0)+ylab("processor time")+scale_y_log10()+theme(legend.position="none")
+ggsave(fp(plt_pth,"sshippo_ptime.pdf"),width=6,height=2.5)
+```
+
+Effect of using size factors
+
+```{r}
+d2<-subset(d,model %in% c("NPF (nb)","NPF (poi)","NPFH (nb)","NPFH (poi)"))
+d2$model<-factor(d2$model)
+d2$dim<-factor(d2$L,levels=sort(unique(d2$L)))
+d2$M[is.na(d2$M)]<-3000
+d2$IPs<-factor(d2$M,levels=sort(unique(d2$M)))
+```
+
+```{r}
+ggplot(d2,aes(x=sz,y=dev_tr_mean,color=dim,shape=IPs))+geom_jitter(size=5,width=.2,height=0)+ylab("training deviance (mean)")+theme(legend.position = "top")+facet_wrap(~model,ncol=2,scales="free")
+
+ggplot(d2,aes(x=sz,y=dev_val_mean,color=dim,shape=IPs))+geom_jitter(size=5,width=.2,height=0)+ylab("validation deviance (mean)")+theme(legend.position = "top")+facet_wrap(~model,ncol=2,scales="free")
+```

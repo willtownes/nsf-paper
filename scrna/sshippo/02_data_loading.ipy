@@ -1,0 +1,72 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .ipy
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.6.0
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+# %% [markdown]
+"""
+First run 01_data_loading.Rmd to get data via Seurat, compute
+Poisson deviance for each gene, and export to H5AD.
+"""
+
+# %% imports
+import random
+import numpy as np
+import scanpy as sc
+from os import path
+
+random.seed(101)
+pth = "scrna/sshippo"
+
+# %% load the pre-processed dataset
+#ad = sq.datasets.slideseqv2()
+ad = sc.read_h5ad(path.join(pth,"data/original/sshippo.h5ad"))
+
+# %% Desiderata for dataset [markdown]
+# 1. Spatial coordinates
+# 2. Features sorted in decreasing order of deviance
+# 3. Observations randomly shuffled
+
+#%% organize anndata
+ad.obsm['spatial'] = ad.obs[["x","y"]].to_numpy()
+ad.obs.drop(columns=["x","y"],inplace=True)
+ad.X = ad.raw.X
+ad.raw = None
+
+# %% QC, loosely following MEFISTO tutorials
+# https://nbviewer.jupyter.org/github/bioFAM/MEFISTO_tutorials/blob/master/MEFISTO_ST.ipynb#QC-and-preprocessing
+#ad.var_names_make_unique()
+ad.var["mt"] = ad.var_names.str.startswith("MT-")
+sc.pp.calculate_qc_metrics(ad, qc_vars=["mt"], inplace=True)
+ad.obs.pct_counts_mt.hist(bins=100)
+ad = ad[ad.obs.pct_counts_mt < 20] #from 53K to 45K
+tc = ad.obs.total_counts
+tc.hist(bins=100)
+tc[tc<500].hist(bins=100)
+(tc<100).sum() #8000 spots
+sc.pp.filter_cells(ad, min_counts=100)
+sc.pp.filter_genes(ad, min_cells=1)
+ad.layers = {"counts":ad.X.copy()} #store raw counts before normalization changes ad.X
+sc.pp.normalize_total(ad, inplace=True, layers=None, key_added="sizefactor")
+sc.pp.log1p(ad)
+
+# %% sort by deviance
+o = np.argsort(-ad.var['deviance_poisson'])
+idx = list(range(ad.shape[0]))
+random.shuffle(idx)
+ad = ad[idx,o]
+ad.var["deviance_poisson"].plot()
+ad.write_h5ad(path.join(pth,"data/sshippo.h5ad"),compression="gzip")
+#ad = sc.read_h5ad(path.join(pth,"data/sshippo.h5ad"))
+ad2 = ad[:,:2000]
+ad2.write_h5ad(path.join(pth,"data/sshippo_J2000.h5ad"),compression="gzip")

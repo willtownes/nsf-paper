@@ -1,0 +1,78 @@
+---
+title: "Visualize spatial importance"
+author: "Will Townes"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+theme_set(theme_bw())
+fp<-file.path
+pth<-"scrna"
+plt_pth<-fp(pth,"results/plots")
+if(!dir.exists(plt_pth)){
+    dir.create(plt_pth,recursive=TRUE)
+}
+
+#dd<-c("sshippo","visium_brain_sagittal","visium_scrambled","xyzeq_liver")
+LL<-list(sshippo=20,visium_brain_sagittal=20,xyzeq_liver=6)
+load_csv<-function(d,ftype){
+    L<-LL[[d]]
+    dfile<-paste0("NPFH_",ftype,"_L",L,"_T",L/2,".csv")
+    read.csv(fp(pth,d,"results",dfile))
+}
+load_csv2<-function(d,ftype){
+    res<-load_csv(d,ftype)
+    res$data<-d
+    res$id<-seq.int(nrow(res))
+    res
+}
+```
+
+Spatial scores per gene
+
+```{r}
+levs<-c("sshippo","xyzeq_liver","visium_brain_sagittal")
+sg<-do.call(rbind,lapply(names(LL),load_csv,"spatial_gene_weights"))
+# sg2<-sg %>% group_by(data) %>% summarize(med=median(spatial_wt),avg=mean(spatial_wt)) %>% arrange(med)
+sg$data<-factor(sg$data,levels=levs)
+ggplot(sg,aes(x=data,y=spatial_wt))+geom_boxplot()+xlab("dataset")+ylab("spatial score per gene")
+ggsave(fp(plt_pth,"gene_scores.pdf"),width=6,height=4)
+for(d in levs){
+  pd<-subset(sg,data==d)
+  ggplot(pd,aes(x=spatial_wt))+geom_histogram(bins=50,fill="darkblue",color="darkblue")+xlab("spatial importance score")+ylab("number of genes")
+  ggsave(fp("scrna",d,"results/plots",paste0(d,"_gene_spatial_score.pdf")),width=6,height=4)    
+}
+```
+
+Spatial scores per cell
+
+```{r}
+sc<-do.call(rbind,lapply(names(LL),load_csv,"spatial_cell_weights"))
+sc$data<-factor(sc$data,levels=levs)
+ggplot(sc,aes(x=data,y=spatial_wt))+geom_boxplot()+xlab("dataset")+ylab("spatial score per observation")
+ggsave(fp(plt_pth,"obs_scores.pdf"),width=6,height=4)
+for(d in levs){
+  pd<-subset(sc,data==d)
+  ggplot(pd,aes(x=spatial_wt))+geom_histogram(bins=50,fill="darkblue",color="darkblue")+xlab("spatial importance score")+ylab("number of observations")
+  ggsave(fp("scrna",d,"results/plots",paste0(d,"_obs_spatial_score.pdf")),width=6,height=4)
+}
+```
+
+Importance of spatial factors (SPDE style)
+
+```{r}
+sgi<-do.call(rbind,lapply(names(LL),load_csv2,"dim_weights_spde"))
+sgi$data<-factor(sgi$data,levels=levs)
+ggplot(sgi,aes(x=id,y=weight,fill=factor_type))+geom_bar(stat="identity")+facet_wrap(~data,nrow=2,scales="free")+theme(legend.position="top")+xlab("factor")+ylab("importance")
+ggsave(fp(plt_pth,"importance_spde.pdf"),width=5,height=4)
+```
+
+Importance of spatial factors (LDA style)
+
+```{r}
+sci<-do.call(rbind,lapply(names(LL),load_csv2,"dim_weights_lda"))
+sci$data<-factor(sci$data,levels=levs)
+ggplot(sci,aes(x=id,y=weight,fill=factor_type))+geom_bar(stat="identity")+facet_wrap(~data,nrow=2,scales="free")+theme(legend.position="none")+xlab("factor")+ylab("importance")
+ggsave(fp(plt_pth,"importance_lda.pdf"),width=5,height=3)
+```

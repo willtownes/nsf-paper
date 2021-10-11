@@ -1,0 +1,99 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .ipy
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.6.0
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+#%%
+import pandas as pd
+from os import path
+from utils import misc,benchmark
+
+pth = "scrna/visium_brain_sagittal"
+dpth = path.join(pth,"data")
+mpth = path.join(pth,"models")
+rpth = path.join(pth,"results")
+misc.mkdir_p(rpth)
+
+#%% Create CSV with benchmarking parameters
+csv_path = path.join(rpth,"benchmark.csv")
+try:
+  par = pd.read_csv(csv_path)
+except FileNotFoundError:
+  L = [6,12,20]
+  sp_mods = ["NPF-P", "NPF-N", "NPF-G", "RPF-G", "NPFH-P", "NPFH-N"]
+  ns_mods = ["NCF-P", "NCF-N", "RCF-G"]
+  sz = ["constant","scanpy"]
+  M = [500,1000,2363]
+  par = benchmark.make_param_df(L,sp_mods,ns_mods,M,sz)
+  par.to_csv(csv_path,index=False)
+
+#%% merge old benchmark csv with new
+# old = pd.read_csv(path.join(rpth,"benchmark1.csv"))
+# new = par.merge(old,on="key",how="outer",copy=True)
+# new["converged"] = new["converged_y"]
+# new["converged"].fillna(False, inplace=True)
+# new.drop(["converged_x","converged_y"],axis=1,inplace=True)
+# new.to_csv(path.join(rpth,"benchmark2.csv"),index=False)
+##rename benchmark2 to benchmark manually
+##some additional scenarios added manually as well (NPF,NPFH with L=36)
+
+#%% Benchmarking at command line [markdown]
+"""
+To run on local computer, use
+`python -m utils.benchmark 9 scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad`
+where 41 is a row ID of benchmark.csv, min value 2, max possible value is 61
+
+To run on cluster first load anaconda environment
+```
+tmux
+interactive
+module load anaconda3/2021.5
+conda activate fwt
+python -m utils.benchmark 14 scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad
+```
+
+To run on cluster as a job array, subset of rows, recommend 6hr time limit.
+```
+DAT=./scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad
+sbatch --mem=72G --array=51,114 ./utils/benchmark_array.slurm $DAT
+```
+
+To run on cluster as a job array, all rows of CSV file
+```
+CSV=./scrna/visium_brain_sagittal/results/benchmark.csv
+DAT=./scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad
+sbatch --mem=72G --array=2-$(wc -l < $CSV) ./utils/benchmark_array.slurm $DAT
+```
+"""
+
+#%% Compute metrics for each model (as a job)
+"""
+DAT=./scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad
+sbatch --mem=72G ./utils/benchmark_gof.slurm $DAT
+"""
+
+#%% Compute metrics for each model (manually)
+from utils import benchmark
+dat = "scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad"
+res = benchmark.update_results(dat,todisk=True)
+
+#%% Examine one result
+from matplotlib import pyplot as plt
+from utils import training
+tro = training.ModelTrainer.from_pickle(path.join(mpth,"L4/poi/NPF_MaternThreeHalves_M3000"))
+plt.plot(tro.loss["train"][-200:-1])
+
+#%%
+csv_file = path.join(rpth,"benchmark.csv")
+Ntr = tro.model.Z.shape[0]
+benchmark.correct_inducing_pts(csv_file, Ntr)

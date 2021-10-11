@@ -1,0 +1,141 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .ipy
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.6.0
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+#%% imports
+import numpy as np
+import pandas as pd
+from os import path
+from math import ceil
+from scanpy import read_h5ad
+# from matplotlib import pyplot as plt
+from tensorflow_probability import math as tm
+tfk = tm.psd_kernels
+
+from models import pfh#,cf,pf
+from utils import preprocess,misc,training,visualize,postprocess
+
+dtp = "float32"
+pth = "scrna/sshippo"
+dpth = path.join(pth,"data")
+mpth = path.join(pth,"models")
+rpth = path.join(pth,"results")
+plt_pth = path.join(rpth,"plots")
+
+# %% Data Loading from scanpy
+J = 2000
+dfile = path.join(dpth,"sshippo_J{}.h5ad".format(J))
+ad = read_h5ad(dfile)
+D,fmeans = preprocess.load_data(dfile,sz="scanpy")
+Dtr = D["raw"]["tr"]
+Xtr = Dtr["X"]
+Ntr = Xtr.shape[0]
+Ytr = Dtr["Y"]
+
+# %% initialize inducing points and tuning parameters
+M = 3000
+# Z = misc.kmeans_inducing_pts(Xtr, 3000)
+# M = Z.shape[0]
+ker = tfk.MaternThreeHalves
+
+#%% NPF Hybrid object
+L = 20
+try:
+  T = ceil(L/2)
+  pp = path.join(pth,"models/L{}/poi_sz-scanpy/NPFH_T{}_{}_M{}".format(L,T,ker.__name__, M))
+  tro = training.ModelTrainer.from_pickle(pp)
+  fit = tro.model
+except FileNotFoundError:
+  Z = misc.kmeans_inducing_pts(Xtr, M)
+  fit = pfh.ProcessFactorizationHybrid(Ntr, J, L, Z, lik="poi", nonneg=True,
+                                       psd_kernel=ker)
+  fit.elbo_avg(**D['raw']['tr'])
+  fit.init_loadings(Ytr,X=Xtr,sz=Dtr["sz"],shrinkage=0.3)
+  pp = fit.generate_pickle_path(base=mpth)
+  tro = training.ModelTrainer(fit,pickle_path=pp)
+  %time tro.train_model(*D['raw']['tf'])
+ttl = "NPFH: spatial, non-negative factors, Poisson likelihood"
+visualize.plot_loss(tro.loss,title=ttl)#,ss=range(200,240))
+
+# %% NPFH: postprocess SPDE style
+hmkw = {"figsize":(6,2.4),"s":0.1,"marker":".","subplot_space":0,
+        "spinecolor":"white"}
+inpfh = postprocess.interpret_npfh(fit,Xtr,S=10,lda_mode=False)
+# misc.pickle_to_file(inpfh,path.join(rpth,"inpfh_L20_M3000_spde.pickle"))
+# inpfh = misc.unpickle_from_file(path.join(rpth,"inpfh_L20_M3000_spde.pickle"))
+tgnames = [str(i) for i in range(1,T+1)]
+fig,axes=visualize.multiheatmap(Xtr, np.sqrt(inpfh["spatial"]["factors"]),
+                                (2,5), **hmkw)
+visualize.set_titles(fig, tgnames, x=0.03, y=.88, fontsize="small", c="white",
+                     ha="left", va="top")
+fig.savefig(path.join(plt_pth,"sshippo_heatmap_npfh20_spde_spat.png"),
+            bbox_inches='tight', dpi=300)
+
+fig,axes=visualize.multiheatmap(Xtr, np.sqrt(inpfh["nonspatial"]["factors"]),
+                                (2,5), **hmkw)
+visualize.set_titles(fig, tgnames, x=0.03, y=.88, fontsize="small", c="white",
+                     ha="left", va="top")
+fig.savefig(path.join(plt_pth,"sshippo_heatmap_npfh20_spde_nsp.png"),
+            bbox_inches='tight', dpi=300)
+#%% Top genes for each latent dimension
+W = inpfh["spatial"]["loadings"]#*inpf["totals"][:,None]
+W[np.isnan(W)] = 0.0
+V = inpfh["nonspatial"]["loadings"]
+V[np.isnan(V)] = 0.0
+topgenes = W.argmax(axis=0).tolist()
+tgnames = ad.var.index[topgenes]
+Ytg = Dtr["Y"][:,topgenes]/Dtr["sz"]
+fig,axes=visualize.multiheatmap(Xtr, np.sqrt(Ytg), (2,5), **hmkw)
+visualize.set_titles(fig, tgnames, x=0.02, y=.88, fontsize="x-small", c="white",
+                     ha="left", va="top")
+fig.savefig(path.join(plt_pth,"sshippo_heatmap_npfh20_spde_spat_genes.png"),
+            bbox_inches='tight', dpi=300)
+#save loadings to disk for further interpretation
+WV = np.hstack((W,V))*inpfh["totals"][:,None]
+WVdf=pd.DataFrame(WV, index=ad.var.index, columns=range(1,L+1))
+WVdf.to_csv(path.join(rpth,"sshippo_npfh20_spde_loadings.csv"))
+#%% spatial importance per gene
+alpha = W.sum(axis=1)
+pd1 = pd.DataFrame({"gene":ad.var_names, "data":"sshippo",
+                    "L":L, "T":T, "spatial_wt":alpha})
+pd1.spatial_wt.hist(bins=100)
+pd1.to_csv(path.join(rpth,"NPFH_spatial_gene_weights_L{}_T{}.csv".format(L,T)),
+           index=False)
+# %% relative importance of each factor
+pd2 = postprocess.npfh_factor_importance(inpfh,lda_mode=False)
+pd2.plot.bar(x="factor_type",y="weight")
+pd2.to_csv(path.join(rpth,"NPFH_dim_weights_spde_L{}_T{}.csv".format(L,T)),
+           index=False)
+
+# %% NPFH: postprocess LDA style
+inpfh = postprocess.interpret_npfh(fit,Xtr,S=10,lda_mode=True)
+#misc.pickle_to_file(inpfh,path.join(rpth,"inpfh_L20_M3000_lda.pickle"))
+#inpfh = misc.unpickle_from_file(path.join(rpth,"inpfh_L20_M3000_lda.pickle"))
+# fig,axes=visualize.multiheatmap(Xtr, np.sqrt(inpfh["spatial"]["factors"]),
+#                                 (2,5), **hmkw)
+# fig.savefig(path.join(plt_pth,"sshippo_heatmap_npfh20_lda_spat.png"),bbox_inches='tight')
+# fig,axes=visualize.multiheatmap(Xtr, np.sqrt(inpfh["nonspatial"]["factors"]),
+#                                 (2,5), **hmkw)
+# fig.savefig(path.join(plt_pth,"sshippo_heatmap_npfh20_lda_nsp.png"),bbox_inches='tight')
+#%% spatial importance per cell
+alpha = inpfh["spatial"]["factors"].sum(axis=1)
+pd1 = pd.DataFrame({"data":"sshippo", "L":L, "T":T, "spatial_wt":alpha})
+pd1.spatial_wt.hist(bins=100)
+pd1.to_csv(path.join(rpth,"NPFH_spatial_cell_weights_L{}_T{}.csv".format(L,T)),
+           index=False)
+# %% relative importance of each factor
+pd2 = postprocess.npfh_factor_importance(inpfh,lda_mode=True)
+pd2.plot.bar(x="factor_type",y="weight")
+pd2.to_csv(path.join(rpth,"NPFH_dim_weights_lda_L{}_T{}.csv".format(L,T)),
+           index=False)

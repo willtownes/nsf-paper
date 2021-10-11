@@ -1,0 +1,92 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .ipy
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.6.0
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+# %% imports
+import random
+import numpy as np
+import pandas as pd
+import scanpy as sc
+from os import path
+from scipy import sparse
+from matplotlib import pyplot as plt
+
+from utils import preprocess, training, misc
+
+random.seed(101)
+pth = "scrna/xyzeq_liver"
+dpth = path.join(pth,"data")
+
+# %% Download original data files
+%%sh
+mkdir -p scrna/xyzeq_liver/data/original
+pushd scrna/xyzeq_liver/data/original
+wget ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM5009nnn/GSM5009531/suppl/GSM5009531_L20C1.h5ad.gz
+unpigz GSM5009531_L20C1.h5ad.gz
+popd
+# Additional data files manually downloaded, provided by authors in email
+
+# %% Data Loading from original
+coords = pd.read_csv(path.join(dpth,"original","plate23_map.csv"))
+coords.rename(columns={coords.columns[0]: "barcode"},inplace=True)
+labs = pd.read_csv(path.join(dpth,"original","L20C1.csv"))
+#merge spatial coordinates with cell type labels and metadata
+labs["barcode"] = [w.split(".")[1] for w in labs["index"]]
+labs = labs.merge(coords,on="barcode")
+ad = sc.read_h5ad(path.join(dpth,"original","GSM5009531_L20C1.h5ad"))
+#match cell type labels with anndata rownames
+ad = ad[labs["index"]]
+labs.set_index("index",inplace=True,verify_integrity=True)
+ad.obs = labs
+mouse_cells = ad.obs["cell_call"]=="M"
+mouse_genes = ad.var_names.str.startswith("mm10_")
+ad = ad[mouse_cells,mouse_genes] #mouse cells only
+nz_genes = np.ravel(ad.X.sum(axis=0)>0)
+ad = ad[:,nz_genes]
+#rename genes to remove mm10_ prefix
+ad.var_names = ad.var_names.str.replace("mm10_","")
+#how many unique barcodes in this slice: only 289
+print("Unique locations: {}".format(len(ad.obs["barcode"].unique())))
+ad.obsm["spatial"] = ad.obs[["X","Y"]].to_numpy()
+ad.obs.drop(columns=["X","Y"],inplace=True)
+X = ad.obsm["spatial"]
+#rectangle marker code: https://stackoverflow.com/a/62572367
+plt.scatter(X[:,0],X[:,1],marker='$\u25AE$',s=120)
+plt.gca().invert_yaxis()
+plt.title("Mouse cell locations")
+plt.show()
+
+#%% QC
+ad.var["mt"] = ad.var_names.str.startswith("mt-")
+sc.pp.calculate_qc_metrics(ad, qc_vars=["mt"], inplace=True)
+ad.obs.pct_counts_mt.hist() #all less than 2%, no need to filter cells
+#all cells and genes passed the below criteria
+ad = ad[ad.obs.pct_counts_mt < 20]
+sc.pp.filter_genes(ad, min_cells=1)
+sc.pp.filter_cells(ad, min_counts=100)
+ad.layers = {"counts":ad.X.copy()} #store raw counts before normalization changes ad.X
+sc.pp.normalize_total(ad, inplace=True, layers=None, key_added="sizefactor")
+sc.pp.log1p(ad)
+
+# %% normalization, feature selection and train/test split
+ad.var['deviance_poisson'] = preprocess.deviancePoisson(ad.layers["counts"])
+o = np.argsort(-ad.var['deviance_poisson'])
+idx = list(range(ad.shape[0]))
+random.shuffle(idx)
+ad = ad[idx,o]
+ad.write_h5ad(path.join(dpth,"xyzeq_liver_L20C1_mouseonly.h5ad"),compression="gzip")
+#ad = sc.read_h5ad(path.join(dpth,"xyzeq_liver_L20C1_mouseonly.h5ad"))
+plt.plot(ad.var["deviance_poisson"].to_numpy())
+ad2 = ad[:,:2000]
+ad2.write_h5ad(path.join(pth,"data/xyzeq_liver_L20C1_mouseonly_J2000.h5ad"),compression="gzip")
