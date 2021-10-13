@@ -1,6 +1,6 @@
 # Nonnegative spatial factorization for multivariate count data
 
-This repository contains supporting code to facilitate reproducible analysis. For details see the preprint. If you find bugs please create a github issue. 
+This repository contains supporting code to facilitate reproducible analysis. For details see the [preprint](https://arxiv.org/abs/2110.06122). If you find bugs please create a github issue. 
 
 ### Authors
 
