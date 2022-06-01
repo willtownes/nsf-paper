@@ -18,7 +18,7 @@ if(!dir.exists(plt_pth)){
 LL<-list(sshippo=20,visium_brain_sagittal=20,xyzeq_liver=6)
 load_csv<-function(d,ftype){
     L<-LL[[d]]
-    dfile<-paste0("NPFH_",ftype,"_L",L,"_T",L/2,".csv")
+    dfile<-paste0("NSFH_",ftype,"_L",L,"_T",L/2,".csv")
     read.csv(fp(pth,d,"results",dfile))
 }
 load_csv2<-function(d,ftype){
@@ -26,6 +26,11 @@ load_csv2<-function(d,ftype){
     res$data<-d
     res$id<-seq.int(nrow(res))
     res
+}
+load_hotspot<-function(d){
+  res<-read.csv(fp(pth,d,"results/hotspot.csv"))
+  res$data<-d
+  res
 }
 ```
 
@@ -41,8 +46,20 @@ ggsave(fp(plt_pth,"gene_scores.pdf"),width=6,height=4)
 for(d in levs){
   pd<-subset(sg,data==d)
   ggplot(pd,aes(x=spatial_wt))+geom_histogram(bins=50,fill="darkblue",color="darkblue")+xlab("spatial importance score")+ylab("number of genes")
-  ggsave(fp("scrna",d,"results/plots",paste0(d,"_gene_spatial_score.pdf")),width=6,height=4)    
+  ggsave(fp("scrna",d,"results/plots",paste0(d,"_gene_spatial_score.pdf")),width=4,height=2.7)    
 }
+```
+Compare to Hotspot
+```{r}
+hs<-do.call(rbind,lapply(names(LL),load_hotspot))
+hs$data<-factor(hs$data,levels=levs)
+colnames(hs)[which(colnames(hs)=="Gene")]<-"gene"
+hs$hs_spatial<-hs$FDR<0.05
+sg$nsfh_spatial<-sg$spatial_wt>0.5
+# with(sg,tapply(is_spatial,data,mean))
+res<-merge(sg,hs,by=c("data","gene"))
+with(res,table(nsfh_spatial,hs_spatial,data))
+res %>% group_by(data) %>% summarise(corr = cor(spatial_wt,Z,method="spearman"))
 ```
 
 Spatial scores per cell
@@ -55,7 +72,7 @@ ggsave(fp(plt_pth,"obs_scores.pdf"),width=6,height=4)
 for(d in levs){
   pd<-subset(sc,data==d)
   ggplot(pd,aes(x=spatial_wt))+geom_histogram(bins=50,fill="darkblue",color="darkblue")+xlab("spatial importance score")+ylab("number of observations")
-  ggsave(fp("scrna",d,"results/plots",paste0(d,"_obs_spatial_score.pdf")),width=6,height=4)
+  ggsave(fp("scrna",d,"results/plots",paste0(d,"_obs_spatial_score.pdf")),width=4,height=2.7)
 }
 ```
 
@@ -75,4 +92,39 @@ sci<-do.call(rbind,lapply(names(LL),load_csv2,"dim_weights_lda"))
 sci$data<-factor(sci$data,levels=levs)
 ggplot(sci,aes(x=id,y=weight,fill=factor_type))+geom_bar(stat="identity")+facet_wrap(~data,nrow=2,scales="free")+theme(legend.position="none")+xlab("factor")+ylab("importance")
 ggsave(fp(plt_pth,"importance_lda.pdf"),width=5,height=3)
+```
+
+spatial autocorrelation of components
+
+```{r}
+#sshippo
+dac<-read.csv(fp(pth,"sshippo/results/NSFH_dim_autocorr_spde_L20_T10.csv"))
+dac$type<-rep(c("spatial","nonspatial"),each=10)
+#dac$id<-as.character(rep(1:10,2))
+dac$component<-factor(dac$component,levels=dac$component)
+ggplot(dac,aes(x=component,y=moran_i,fill=type))+geom_bar(stat="identity")+ylab("Moran's I")+theme(legend.position="none")
+ggsave(fp(pth,"results/plots/sshippo_L20_moranI.pdf"),width=5,height=3)
+
+#xyzeq
+dac<-read.csv(fp(pth,"xyzeq_liver/results/NSFH_dim_autocorr_spde_L6_T3.csv"))
+dac$type<-rep(c("spatial","nonspatial"),each=3)
+#dac$id<-as.character(rep(1:10,2))
+dac$component<-factor(dac$component,levels=dac$component)
+ggplot(dac,aes(x=component,y=moran_i,fill=type))+geom_bar(stat="identity")+ylab("Moran's I")+theme(legend.position="none")
+ggsave(fp(pth,"results/plots/xyz_liv_L6_moranI.pdf"),width=3,height=1.75)
+
+#visium
+dac<-read.csv(fp(pth,"visium_brain_sagittal/results/NSFH_dim_autocorr_spde_L20_T10.csv"))
+dac$type<-rep(c("spatial","nonspatial"),each=10)
+#dac$id<-as.character(rep(1:10,2))
+dac$component<-factor(dac$component,levels=dac$component)
+ggplot(dac,aes(x=component,y=moran_i,fill=type))+geom_bar(stat="identity")+ylab("Moran's I")+theme(legend.position="none")
+ggsave(fp(pth,"results/plots/vz_brn_L20_moranI.pdf"),width=5,height=3)
+
+dac<-read.csv(fp(pth,"visium_brain_sagittal/results/NSFH_dim_autocorr_spde_L60_T30.csv"))
+dac$type<-rep(c("spatial","nonspatial"),each=30)
+#dac$id<-as.character(rep(1:10,2))
+dac$component<-factor(dac$component,levels=dac$component)
+ggplot(dac,aes(x=component,y=moran_i,fill=type))+geom_bar(stat="identity")+ylab("Moran's I")+theme(legend.position="none", axis.text.x=element_text(angle=45,hjust=1))
+ggsave(fp(pth,"results/plots/vz_brn_L60_moranI.pdf"),width=5.5,height=3)
 ```

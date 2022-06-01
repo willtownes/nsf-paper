@@ -5,17 +5,15 @@ output: html_document
 ---
 
 ```{r}
-# library(tidyverse)
 library(biomaRt)
-# library(rPanglaoDB)
 source("./scrna/utils/interpret_genes.R")
 
 fp<-file.path
 pth<-"scrna/sshippo"
 ```
-loadings from NPFH
+loadings from NSFH
 ```{r}
-W<-read.csv(fp(pth,"results/sshippo_npfh20_spde_loadings.csv"),header=TRUE,row.names=1)
+W<-read.csv(fp(pth,"results/sshippo_nsfh20_spde_loadings.csv"),header=TRUE,row.names=1)
 rownames(W)<-toupper(rownames(W))
 # #format rownames in title case
 # g<-str_to_title(rownames(W))
@@ -23,23 +21,26 @@ rownames(W)<-toupper(rownames(W))
 W2<-t(apply(as.matrix(W),1,function(x){as.numeric(x==max(x))}))
 colSums(W2) #clustering of genes
 ```
-Gene Ontology terms. 
+Gene Ontology terms, used for both NSFH and hotspot.
 ```{r}
 # bg<-rownames(W)
 db<-useMart("ensembl",host="https://may2021.archive.ensembl.org",dataset='mmusculus_gene_ensembl')
 go_ids<-getBM(attributes=c('go_id', 'external_gene_name','namespace_1003'), filters='external_gene_name', values=rownames(W), mart=db)
 go_ids[,2]<-toupper(go_ids[,2])
 gene_2_GO<-unstack(go_ids[,c(1,2)])
+```
+GO analysis for NSFH
+```{r}
 # g<-strsplit(res[l,"genes"],", ",fixed=TRUE)[[1]]
 # expr <- getMarkers(include = g[c(1:2,4,6,7)])$
 res<-loadings2go(W,gene_2_GO)#,numtopgenes=50,min_genescore=1)
 res$type<-rep(c("spat","nsp"),each=10)
 res$dim<-rep(1:10,2)
-write.csv(res[,c(1,4,2,3)],fp(pth,"results/sshippo_npfh20_spde_goterms.csv"),row.names=FALSE)
+write.csv(res[,c(1,4,2,3)],fp(pth,"results/sshippo_nsfh20_spde_goterms.csv"),row.names=FALSE)
 ```
 Get cell types from [Panglao](https://panglaodb.se). First manually download the list of all marker genes for all cell types from https://panglaodb.se/markers.html?cell_type=%27all_cells%27 . Store this TSV in the scrna/resources folder.
 ```{r}
-res<-read.csv(fp(pth,"results/sshippo_npfh20_spde_goterms.csv"),header=TRUE)
+res<-read.csv(fp(pth,"results/sshippo_nsfh20_spde_goterms.csv"),header=TRUE)
 panglao_tsv="scrna/resources/PanglaoDB_markers_27_Mar_2020.tsv.gz"
 mk<-read.table(gzfile(panglao_tsv),header=TRUE,sep="\t")
 mk<-subset(mk,species %in% c("Mm","Mm Hs"))
@@ -49,15 +50,34 @@ pg<-tapply(mk$official.gene.symbol,mk$cell.type,function(x){x},simplify=FALSE)
 ct<-lapply(res$genes,genes2celltype,pg)#,ss=3)
 ct[is.na(ct)]<-""
 res$celltypes<-paste(ct,sep=", ")
-write.csv(res,fp(pth,"results/sshippo_npfh20_spde_goterms.csv"),row.names=FALSE)
+write.csv(res,fp(pth,"results/sshippo_nsfh20_spde_goterms.csv"),row.names=FALSE)
 ```
 Shorter GO table
 ```{r}
-res<-read.csv(fp(pth,"results/sshippo_npfh20_spde_goterms.csv"),header=TRUE)
+res<-read.csv(fp(pth,"results/sshippo_nsfh20_spde_goterms.csv"),header=TRUE)
 res2<-res
 g<-strsplit(res2$genes,", ",fixed=TRUE)
 res2$genes<-sapply(g,function(x){paste(x[1:5],collapse=", ")})
 gt<-strsplit(res2$go_bp,"; ",fixed=TRUE)
 res2$go_bp<-sapply(gt,function(x){paste(x[1:2],collapse=", ")})
-write.csv(res2,fp(pth,"results/sshippo_npfh20_spde_goterms_short.csv"),row.names=FALSE)
+write.csv(res2,fp(pth,"results/sshippo_nsfh20_spde_goterms_short.csv"),row.names=FALSE)
+```
+
+GO analysis for hotspot
+```{r}
+hs<-read.csv(fp(pth,"results/hotspot.csv"),header=TRUE)
+rownames(hs)<-hs$Gene
+Wh<-model.matrix(~0+factor(Module),data=subset(hs,Module!=-1))
+colnames(Wh)<-paste0("X",1:ncol(Wh))
+rownames(Wh)<-toupper(rownames(Wh))
+# all(rownames(Wh) %in% rownames(W))
+hres<-loadings2go(Wh,gene_2_GO, rowmean_divide=TRUE)
+colnames(hres)[which(colnames(hres)=="dim")]<-"cluster"
+write.csv(hres,fp(pth,"results/sshippo_hotspot_goterms.csv"),row.names=FALSE)
+hres2<-hres
+g<-strsplit(hres2$genes,", ",fixed=TRUE)
+hres2$genes<-sapply(g,function(x){paste(x[1:5],collapse=", ")})
+gt<-strsplit(hres2$go_bp,"; ",fixed=TRUE)
+hres2$go_bp<-sapply(gt,function(x){paste(x[1:2],collapse=", ")})
+write.csv(hres2,fp(pth,"results/sshippo_hotspot_goterms_short.csv"),row.names=FALSE)
 ```

@@ -20,7 +20,7 @@ from utils import misc,benchmark
 
 pth = "scrna/sshippo"
 dpth = path.join(pth,"data")
-mpth = path.join(pth,"models")
+mpth = path.join(pth,"models/V5")
 rpth = path.join(pth,"results")
 misc.mkdir_p(rpth)
 
@@ -30,8 +30,8 @@ try:
   par = pd.read_csv(csv_path)
 except FileNotFoundError:
   L = [6,12,20]
-  sp_mods = ["NPF-P", "NPF-N", "NPF-G", "RPF-G", "NPFH-P", "NPFH-N"]
-  ns_mods = ["NCF-P", "NCF-N", "RCF-G"]
+  sp_mods = ["NSF-P", "NSF-N", "NSF-G", "RSF-G", "NSFH-P", "NSFH-N"]
+  ns_mods = ["PNMF-P", "PNMF-N", "FA-G"]
   sz = ["constant","scanpy"]
   M = [1000,2000,3000]
   par = benchmark.make_param_df(L,sp_mods,ns_mods,M,sz)
@@ -69,11 +69,11 @@ sbatch --mem=180G --array=2-$(wc -l < $CSV) ./utils/benchmark_array.slurm $DAT
 #%% Compute metrics for each model
 """
 DAT=./scrna/sshippo/data/sshippo_J2000.h5ad
-sbatch --mem=180G ./utils/benchmark_gof.slurm $DAT
+sbatch --mem=180G ./utils/benchmark_gof.slurm $DAT 5
 """
 
 #%% Examine one result
 from matplotlib import pyplot as plt
 from utils import training
-tro = training.ModelTrainer.from_pickle(path.join(mpth,"L20/poi/NPFH_T10_MaternThreeHalves_M1000"))
+tro = training.ModelTrainer.from_pickle(path.join(mpth,"L20/poi/NSFH_T10_MaternThreeHalves_M1000"))
 plt.plot(tro.loss["train"][-200:-1])
