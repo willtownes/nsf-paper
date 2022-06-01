@@ -1,0 +1,79 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .ipy
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.6.0
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+#%% imports
+# import numpy as np
+import pandas as pd
+import scanpy as sc
+import matplotlib.pyplot as plt
+from os import path
+from hotspot import Hotspot
+
+from utils import misc,visualize
+
+dtp = "float32"
+pth = "scrna/visium_brain_sagittal"
+dpth = path.join(pth,"data")
+mpth = path.join(pth,"models")
+rpth = path.join(pth,"results")
+plt_pth = path.join(rpth,"plots")
+
+# %% Data Loading from scanpy
+J = 2000
+# dfile = path.join(dpth,"visium_brain_sagittal_J{}.h5ad".format(J))
+dfile = path.join(dpth,"visium_brain_sagittal.h5ad")
+adata = sc.read_h5ad(dfile)
+sc.pp.highly_variable_genes(adata, flavor="seurat", n_top_genes=J)
+X0 = adata.obsm["spatial"]
+X0[:,1] = -X0[:,1]
+
+#%% Traditional scanpy analysis (unsupervised clustering)
+#https://scanpy-tutorials.readthedocs.io/en/latest/spatial/basic-analysis.html
+sc.pp.pca(adata)
+sc.pp.neighbors(adata)
+sc.tl.umap(adata)
+sc.tl.leiden(adata, resolution=1.0, key_added="clusters")
+plt.rcParams["figure.figsize"] = (4, 4)
+sc.pl.umap(adata, color="clusters", wspace=0.4)
+sc.pl.embedding(adata, "spatial", color="clusters")
+cl = pd.get_dummies(adata.obs["clusters"]).to_numpy()
+tgnames = [str(i) for i in range(1,cl.shape[1]+1)]
+hmkw = {"figsize":(10,8), "s":0.5, "marker":"D", "subplot_space":0,
+        "spinecolor":"white"}
+fig,axes=visualize.multiheatmap(X0, cl, (4,5), **hmkw)
+visualize.set_titles(fig, tgnames, x=0.03, y=.88, fontsize="small", c="white",
+                     ha="left", va="top")
+fig.savefig(path.join(plt_pth,"vz_brn_heatmap_scanpy_clusters.pdf"),
+            bbox_inches='tight')
+
+#%% Hotspot analysis (gene clusters)
+#https://hotspot.readthedocs.io/en/latest/Spatial_Tutorial.html
+J = 2000
+dfile = path.join(dpth,"visium_brain_sagittal_J{}.h5ad".format(J))
+adata = sc.read_h5ad(dfile)
+adata.layers["counts"] = adata.layers["counts"].tocsc()
+hs = Hotspot(adata, layer_key="counts", model="danb",
+             latent_obsm_key="spatial", umi_counts_obs_key="total_counts")
+hs.create_knn_graph(weighted_graph=False, n_neighbors=20)
+hs_results = hs.compute_autocorrelations()
+# hs_results.tail()
+hs_genes = hs_results.index#[hs_results.FDR < 0.05]
+lcz = hs.compute_local_correlations(hs_genes)
+modules = hs.create_modules(min_gene_threshold=20, core_only=False,
+                            fdr_threshold=0.05)
+# modules.value_counts()
+hs_results = hs_results.join(modules,how="left")
+hs_results.to_csv(path.join(rpth,"hotspot.csv"))
+misc.pickle_to_file(hs,path.join(mpth,"hotspot.pickle"))

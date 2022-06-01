@@ -1,9 +1,13 @@
 library(topGO)
 
-loadings2go<-function(W,gene_2_GO,numtopgenes=100,min_genescore=1.0){
+loadings2go<-function(W, gene_2_GO, numtopgenes=100, min_genescore=1.0,
+                      rowmean_divide=TRUE){
   #This blog was helpful: https://datacatz.wordpress.com/2018/01/19/gene-set-enrichment-analysis-with-topgo-part-1/
   #divide each gene by its rowmean to adjust for constant high expression
-  W<-as.matrix(W/rowMeans(W)) #enables preservation of rownames when subsetting cols
+  if(rowmean_divide){
+    W<-W/rowMeans(W)
+  }
+  W<-as.matrix(W) #enables preservation of rownames when subsetting cols
   qtl<-1-(numtopgenes/nrow(W))
   topGenes<-function(x){
     cutoff<-max(quantile(x,qtl),min_genescore)

@@ -20,7 +20,7 @@ from utils import misc,benchmark
 
 pth = "scrna/visium_brain_sagittal"
 dpth = path.join(pth,"data")
-mpth = path.join(pth,"models")
+mpth = path.join(pth,"models/V5")
 rpth = path.join(pth,"results")
 misc.mkdir_p(rpth)
 
@@ -30,11 +30,13 @@ try:
   par = pd.read_csv(csv_path)
 except FileNotFoundError:
   L = [6,12,20]
-  sp_mods = ["NPF-P", "NPF-N", "NPF-G", "RPF-G", "NPFH-P", "NPFH-N"]
-  ns_mods = ["NCF-P", "NCF-N", "RCF-G"]
+  sp_mods = ["NSF-P", "NSF-N", "NSF-G", "RSF-G", "NSFH-P", "NSFH-N"]
+  ns_mods = ["PNMF-P", "PNMF-N", "FA-G"]
   sz = ["constant","scanpy"]
   M = [500,1000,2363]
-  par = benchmark.make_param_df(L,sp_mods,ns_mods,M,sz)
+  V = [5]
+  kernels=["MaternThreeHalves"]
+  par = benchmark.make_param_df(L,sp_mods,ns_mods,M,sz,V=V,kernels=kernels)
   par.to_csv(csv_path,index=False)
 
 #%% merge old benchmark csv with new
@@ -45,13 +47,45 @@ except FileNotFoundError:
 # new.drop(["converged_x","converged_y"],axis=1,inplace=True)
 # new.to_csv(path.join(rpth,"benchmark2.csv"),index=False)
 ##rename benchmark2 to benchmark manually
-##some additional scenarios added manually as well (NPF,NPFH with L=36)
+##some additional scenarios added manually as well (NSF,NSFH with L=36)
+
+#%% Additional scenarios added in response to reviewer comments
+# manually merge with original benchmark.csv
+# all original scenarios with 80/20 train/val split (only Matern32 kernel, no NB lik)
+csv_path = path.join(rpth,"benchmark2.csv")
+try:
+  par = pd.read_csv(csv_path)
+except FileNotFoundError:
+  L = [6,12,20]
+  sp_mods = ["NSF-P", "RSF-G", "NSFH-P"]
+  ns_mods = ["PNMF-P", "FA-G"]
+  sz = ["constant","scanpy"]
+  M = [500,1000,2363]
+  V = [20]
+  kernels=["MaternThreeHalves"]
+  par = benchmark.make_param_df(L,sp_mods,ns_mods,M,sz,V=V,kernels=kernels)
+  par.to_csv(csv_path,index=False)
+# NSF, RSF, and NSFH with ExponentiatedQuadratic kernel
+# need to manually delete duplicate MEFISTO scenarios in this one
+csv_path = path.join(rpth,"benchmark3.csv")
+try:
+  par = pd.read_csv(csv_path)
+except FileNotFoundError:
+  L = [6,12,20]
+  sp_mods = ["NSF-P", "RSF-G", "NSFH-P"]
+  ns_mods = []
+  sz = ["constant","scanpy"]
+  M = [500,1000,2363]
+  V = [5]
+  kernels=["ExponentiatedQuadratic"]
+  par = benchmark.make_param_df(L,sp_mods,ns_mods,M,sz,V=V,kernels=kernels)
+  par.to_csv(csv_path,index=False)
 
 #%% Benchmarking at command line [markdown]
 """
 To run on local computer, use
-`python -m utils.benchmark 9 scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad`
-where 41 is a row ID of benchmark.csv, min value 2, max possible value is 61
+`python -m utils.benchmark 197 scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad`
+where 41 is a row ID of benchmark.csv, min value 2, max possible value is 241
 
 To run on cluster first load anaconda environment
 ```
@@ -65,7 +99,7 @@ python -m utils.benchmark 14 scrna/visium_brain_sagittal/data/visium_brain_sagit
 To run on cluster as a job array, subset of rows, recommend 6hr time limit.
 ```
 DAT=./scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad
-sbatch --mem=72G --array=51,114 ./utils/benchmark_array.slurm $DAT
+sbatch --mem=72G --array=135-196,198-241 ./utils/benchmark_array.slurm $DAT
 ```
 
 To run on cluster as a job array, all rows of CSV file
@@ -79,18 +113,21 @@ sbatch --mem=72G --array=2-$(wc -l < $CSV) ./utils/benchmark_array.slurm $DAT
 #%% Compute metrics for each model (as a job)
 """
 DAT=./scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad
-sbatch --mem=72G ./utils/benchmark_gof.slurm $DAT
+sbatch --mem=72G ./utils/benchmark_gof.slurm $DAT 5
+#wait until job finishes, then run below
+DAT=./scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad
+sbatch --mem=72G ./utils/benchmark_gof.slurm $DAT 20
 """
 
 #%% Compute metrics for each model (manually)
 from utils import benchmark
 dat = "scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad"
-res = benchmark.update_results(dat,todisk=True)
+res = benchmark.update_results(dat, val_pct=20, todisk=True)
 
 #%% Examine one result
 from matplotlib import pyplot as plt
 from utils import training
-tro = training.ModelTrainer.from_pickle(path.join(mpth,"L4/poi/NPF_MaternThreeHalves_M3000"))
+tro = training.ModelTrainer.from_pickle(path.join(mpth,"L4/poi/NSF_MaternThreeHalves_M3000"))
 plt.plot(tro.loss["train"][-200:-1])
 
 #%%
