@@ -19,17 +19,18 @@ import pandas as pd
 from os import path
 from math import ceil
 from scanpy import read_h5ad
-# from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt
+from scipy.spatial.distance import cdist
 from tensorflow_probability import math as tm
 tfk = tm.psd_kernels
 
-from models import pf,pfh,cf
+from models import sf,sfh,cf
 from utils import preprocess,training,misc,visualize,postprocess
 
 dtp = "float32"
 pth = "scrna/xyzeq_liver"
 dpth = path.join(pth,"data")
-mpth = path.join(pth,"models")
+mpth = path.join(pth,"models/V5")
 rpth = path.join(pth,"results")
 plt_pth = path.join(rpth,"plots")
 
@@ -42,11 +43,188 @@ Dtr = D["raw"]["tr"]
 Xtr = Dtr["X"]
 Ntr = Xtr.shape[0]
 Ytr = Dtr["Y"]
+# Dtr,Dval = preprocess.anndata_to_train_val(ad,layer="counts",sz="scanpy")
+Dtr_n,Dval_n = preprocess.anndata_to_train_val(ad) #normalized data
+fmeans,Dtr_c,Dval_c = preprocess.center_data(Dtr_n,Dval_n) #centered features
+# Xtr = Dtr["X"] #note this should be identical to Dtr_n["X"]
+# Ntr = Xtr.shape[0]
+# Ytr = Dtr["Y"]
+# Dtf = preprocess.prepare_datasets_tf(Dtr,Dval=Dval,shuffle=False)
+# Dtf_n = preprocess.prepare_datasets_tf(Dtr_n,Dval=Dval_n,shuffle=False)
+# Dtf_c = preprocess.prepare_datasets_tf(Dtr_c,Dval=Dval_c,shuffle=False)
 
-#%% NCF: Non-spatial, nonnegative
-L = 12
+#%% Visualize cell types from original publication
+X = ad.obsm["spatial"]
+X[:,1] = -X[:,1]
+Y = pd.get_dummies(ad.obs["celltype"])
+ct = Y.columns.tolist()
+Z = np.unique(X, axis=0)
+ZX = 1-(cdist(Z,X)>0) #NxM matrix
+Yz = ZX@Y.to_numpy() #sum across cells in the same spatial well
+ZX2 = ZX/ZX.sum(axis=1)[:,None] #premultiply by this to average within locations
+Yz2 = ZX2@Y.to_numpy()
+hmkw = {"figsize":(6.5,2.6),"subplot_space":0,"spinecolor":"white","marker":"$\u25AE$"}
+fig,axes=visualize.multiheatmap(Z, Yz, (2,4), s=9, **hmkw)
+visualize.set_titles(fig, ct, x=1.0, y=.78, fontsize="small", c="white",
+                     ha="right", va="top")
+fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_celltype_counts.pdf"),
+            bbox_inches='tight')
+
+# %% initialize inducing points and tuning parameters
+Z = misc.kmeans_inducing_pts(Xtr, Ntr)
+M = Z.shape[0]
+ker = tfk.MaternThreeHalves
+#find mapping between Xtr and Z
+ZX = 1-(cdist(Z,Xtr)>0) #Ntr x M matrix
+Yz = ZX@Ytr #sum across cells in the same spatial well
+ZX2 = ZX/ZX.sum(axis=1)[:,None] #premultiply by this to average within locations
+# Zg = visualize.hull_tile(Z,2500)
+Zg = visualize.bounding_box_tile(Z,2500)
+
+#%% NSF Hybrid object
+L = 6
 try:
-  pp = path.join(mpth,"L{}/poi_sz-scanpy/NCF".format(L))
+  T = ceil(L/2)
+  pp = path.join(mpth,"L{}/poi_sz-scanpy/NSFH_T{}_{}_M{}".format(L,T,ker.__name__, M))
+  tro = training.ModelTrainer.from_pickle(pp)
+  fit = tro.model
+except FileNotFoundError:
+  fit = sfh.SpatialFactorizationHybrid(Ntr, J, L, Z, lik="poi", nonneg=True,
+                                       psd_kernel=ker)
+  fit.elbo_avg(**Dtr)
+  fit.init_loadings(Ytr,X=Xtr,sz=Dtr["sz"],shrinkage=0.2)
+  pp = fit.generate_pickle_path("scanpy",base=mpth)
+  tro = training.ModelTrainer(fit,pickle_path=pp)
+  %time tro.train_model(*D['raw']['tf']) #6min
+ttl = "NSFH: spatial, non-negative factors, Poisson likelihood"
+visualize.plot_loss(tro.loss,title=ttl)#,ss=range(200,240))
+#dev_nsfh =visualize.gof(fit,Dtr,Dval=Dval,title=ttl)
+# %% NSFH: postprocess SPDE style
+hmkw = {"figsize":(6,2),"subplot_space":0,"spinecolor":"white","marker":"$\u25AE$"}#"s":30,
+insfh = postprocess.interpret_nsfh(fit,Zg,S=10,lda_mode=False)
+tgnames = [str(i) for i in range(1,T+1)]
+fig,axes=visualize.multiheatmap(Zg, np.sqrt(insfh["spatial"]["factors"]),
+                                (1,3), s=2,**hmkw)
+visualize.set_titles(fig, tgnames, x=0.05, y=.85, fontsize="large", c="black",
+                     ha="left", va="top")
+fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_nsfh{}_spde_spat.pdf".format(L)),
+            bbox_inches='tight')
+fig,axes=visualize.multiheatmap(Z, np.sqrt(ZX2@insfh["nonspatial"]["factors"]),
+                                (1,3), s=30, **hmkw)
+visualize.set_titles(fig, tgnames, x=0.05, y=.85, fontsize="medium", c="white",
+                      ha="left", va="top")
+fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_nsfh{}_spde_nsp.pdf".format(L)),
+            bbox_inches='tight')
+#%% Top genes for each latent dimension
+insfh = postprocess.interpret_nsfh(fit,Xtr,S=10,lda_mode=False)
+W = insfh["spatial"]["loadings"]#*insf["totals"][:,None]
+W[np.isnan(W)] = 0.0
+V = insfh["nonspatial"]["loadings"]
+V[np.isnan(V)] = 0.0
+topgenes = W.argmax(axis=0).tolist()
+tgnames = ad.var.index[topgenes]
+Ytg = Yz[:,topgenes]/(ZX@Dtr["sz"])
+fig,axes=visualize.multiheatmap(Z, np.sqrt(Ytg), (1,3), **hmkw)
+visualize.set_titles(fig, tgnames, x=0.44, y=.9, fontsize="medium", c="white",
+                     ha="left", va="top")
+fig.savefig(path.join(plt_pth,
+                      "xyz_liv_heatmap_nsfh{}_spde_spat_genes.pdf".format(L)),
+            bbox_inches='tight')
+#save loadings to disk for further interpretation
+WV = np.hstack((W,V))*insfh["totals"][:,None]
+WVdf=pd.DataFrame(WV, index=ad.var.index, columns=range(1,L+1))
+WVdf.to_csv(path.join(rpth,"xyz_liv_nsfh{}_spde_loadings.csv".format(L)))
+#%% spatial importance per gene
+alpha = insfh["spatial"]["loadings"].sum(axis=1)
+pd1 = pd.DataFrame({"gene":ad.var_names, "data":"xyzeq_liver",
+                    "L":L, "T":T, "spatial_wt":alpha})
+pd1.spatial_wt.hist(bins=100)
+pd1.to_csv(path.join(rpth,"NSFH_spatial_gene_weights_L{}_T{}.csv".format(L,T)),
+           index=False)
+# %% relative importance of each factor
+pd2 = postprocess.nsfh_factor_importance(insfh,lda_mode=False)
+pd2.plot.bar(x="factor_type",y="weight")
+pd2.to_csv(path.join(rpth,"NSFH_dim_weights_spde_L{}_T{}.csv".format(L,T)),
+           index=False)
+#%% Autocorrelation of spatial and nonspatial factors
+insfh2 = postprocess.interpret_nsfh(fit,Xtr,S=10,lda_mode=False)
+Fi,Fac = misc.dims_autocorr(insfh2["spatial"]["factors"], Xtr, sort=False)
+Fnames = ["sp"+str(i) for i in range(1,len(Fac)+1)]
+Hi,Hac = misc.dims_autocorr(insfh2["nonspatial"]["factors"], Xtr, sort=False)
+Hnames = ["ns"+str(i) for i in range(1,len(Hac)+1)]
+res = pd.DataFrame({"component":Fnames+Hnames,"moran_i":np.concatenate((Fac,Hac))})
+res.plot.bar(x="component",y="moran_i")
+res.to_csv(path.join(rpth,"NSFH_dim_autocorr_spde_L{}_T{}.csv".format(L,T)),
+           index=False)
+# %% Postprocess LDA style
+insfh = postprocess.interpret_nsfh(fit,Xtr,S=10,lda_mode=True)
+# fig,axes=visualize.multiheatmap(Xtr, np.sqrt(insfh["spatial"]["factors"]),
+#                                 (2,4), **hmkw)
+# fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_nsfh16_lda_spat.pdf"),bbox_inches='tight')
+# fig,axes=visualize.multiheatmap(Xtr, np.sqrt(insfh["nonspatial"]["factors"]),
+#                                 (2,4), **hmkw)
+# fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_nsfh16_lda_nsp.pdf"),bbox_inches='tight')
+#%% spatial importance per cell
+alpha = insfh["spatial"]["factors"].sum(axis=1)
+pd1 = pd.DataFrame({"data":"xyzeq_liver", "L":L, "T":T, "spatial_wt":alpha})
+pd1.spatial_wt.hist(bins=100)
+pd1.to_csv(path.join(rpth,"NSFH_spatial_cell_weights_L{}_T{}.csv".format(L,T)),
+           index=False)
+# %% relative importance of each factor
+pd2 = postprocess.nsfh_factor_importance(insfh,lda_mode=True)
+pd2.plot.bar(x="factor_type",y="weight")
+pd2.to_csv(path.join(rpth,"NSFH_dim_weights_lda_L{}_T{}.csv".format(L,T)),
+           index=False)
+
+#%% NSF: Spatial only with non-negative factors
+L = 12 #number of latent factors, ideally divisible by 2
+try:
+  pp = path.join(mpth,"L{}/poi_sz-scanpy/NSF_{}_M{}".format(L,ker.__name__,M))
+  tro = training.ModelTrainer.from_pickle(pp)
+  fit = tro.model
+except FileNotFoundError:
+  fit = sf.SpatialFactorization(J,L,Z,psd_kernel=ker,nonneg=True,lik="poi")
+  fit.elbo_avg(Xtr,Ytr,sz=Dtr["sz"])
+  fit.init_loadings(Ytr,X=Xtr,sz=Dtr["sz"])
+  fit.elbo_avg(Xtr,Ytr,sz=Dtr["sz"])
+  pp = fit.generate_pickle_path("scanpy",base=mpth)
+  tro = training.ModelTrainer(fit,pickle_path=pp)
+  %time tro.train_model(*D["raw"]["tf"],S=1,tol=1e-5) #4.5 mins
+ttl = "NSF: spatial, non-negative factors, Poisson likelihood"
+#ttl = None
+fig,ax = visualize.plot_loss(tro.loss,title=ttl,train_col="red",val_col="green")#,ss=range(2000,4000))
+fig.savefig(path.join(plt_pth,"xyz_liv_elbo_loss_trace.pdf"),bbox_inches='tight')
+#dev_nsf=visualize.gof(fit,Dtr,Dval=Dval,title=ttl)
+#%% visualize smoother
+span = 100
+cc = training.ConvergenceChecker(span)
+elbo = tro.loss["train"]
+epoch = np.arange(len(elbo))
+elbo_smooth = 0.0*elbo
+for i in range(2*span):
+  elbo_smooth[-i] = cc.smooth(elbo[-(i+1+span):-(i+1)])[-1]
+rg = -int(1.5*span)+1
+fig,ax = plt.subplots(figsize=(6,4))
+ax.plot(epoch[rg:],elbo[rg:],"red",label="raw training")
+ax.plot(epoch[rg:],elbo_smooth[rg:],"blue",label="cubic smooth")
+ax.set_xlabel("epoch")
+ax.set_ylabel("ELBO loss")
+ax.legend()
+fig.savefig(path.join(plt_pth,"xyz_liv_elbo_loss_trace_smoothed.pdf"),bbox_inches="tight")
+#%% Postprocessing
+insf = postprocess.interpret_nsf(fit,Xtr,S=100,lda_mode=False)
+fig,axes=visualize.multiheatmap(Xtr, np.sqrt(insf["factors"]), (4,3), figsize=(4,4),
+                                s=8, marker='$\u25AE$', subplot_space=0,
+                                spinecolor="white")
+fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_nsf12_spde.pdf"),bbox_inches='tight')
+#%% Top genes for each latent dimensions
+topgenes = insf["loadings"].argmax(axis=0).tolist()
+tgnames = ad.var_names[topgenes] #Hal is hepatocyte marker (2nd dim)
+
+#%% PNMF: Non-spatial, nonnegative
+L = 6
+try:
+  pp = path.join(mpth,"L{}/poi_sz-scanpy/PNMF".format(L))
   tro = training.ModelTrainer.from_pickle(pp)
   fit = tro.model
 except FileNotFoundError:
@@ -56,133 +234,78 @@ except FileNotFoundError:
   pp = fit.generate_pickle_path("scanpy",base=mpth)
   tro = training.ModelTrainer(fit,pickle_path=pp)
   %time tro.train_model(D["raw"]["tf"][0],D["raw"]["tf"][1])
-ttl = "NCF: nonspatial, non-negative factors, Poisson likelihood"
+ttl = "PNMF: nonspatial, non-negative factors, Poisson likelihood"
 visualize.plot_loss(tro.loss,title=ttl)#,ss=range(2000,4000))
-#dev_ncf = visualize.gof(fit,Dtr,Dval=Dval,title=ttl)
+#dev_pnmf = visualize.gof(fit,Dtr,Dval=Dval,title=ttl)
 #%% Postprocess
-incf = postprocess.interpret_ncf(fit,S=10,lda_mode=False)
-fig,axes=visualize.multiheatmap(Xtr, np.sqrt(incf["factors"]), (3,4),
-                                figsize=(6,4), s=.3, marker="D",
-                                subplot_space=0, spinecolor="white")
+hmkw = {"figsize":(6,4),"s":30,"marker":"$\u25AE$","subplot_space":0,"spinecolor":"white"}
+ipnmf = postprocess.interpret_pnmf(fit,S=10,lda_mode=False)
+fig,axes=visualize.multiheatmap(Z, np.sqrt(ZX2@ipnmf["factors"]), (2,3), **hmkw)
+tgnames = [str(i) for i in range(1,L+1)]
+visualize.set_titles(fig, tgnames, x=0.05, y=.85, fontsize="large", c="white",
+                     ha="left", va="top")
+fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_pnmf{}.pdf".format(L)),
+            bbox_inches='tight')
 
-# %% initialize inducing points and tuning parameters
-Z = misc.kmeans_inducing_pts(Xtr, Ntr)
-M = Z.shape[0]
-ker = tfk.MaternThreeHalves
-#find mapping between Xtr and Z
-from scipy.spatial.distance import cdist
-ZX = 1-(cdist(Z,Xtr)>0) #Ntr x M matrix
-Yz = ZX@Ytr #sum across cells in the same spatial well
-
-#%% NPF: Spatial only with non-negative factors
-L = 12 #number of latent factors, ideally divisible by 2
-try:
-  pp = path.join(mpth,"L{}/poi_sz-scanpy/NPF_{}_M{}".format(L,ker.__name__,M))
-  tro = training.ModelTrainer.from_pickle(pp)
-  fit = tro.model
-except FileNotFoundError:
-  fit = pf.ProcessFactorization(J,L,Z,psd_kernel=ker,nonneg=True,lik="poi")
-  fit.elbo_avg(Xtr,Ytr,sz=Dtr["sz"])
-  fit.init_loadings(Ytr,X=Xtr,sz=Dtr["sz"])
-  fit.elbo_avg(Xtr,Ytr,sz=Dtr["sz"])
-  pp = fit.generate_pickle_path("scanpy",base=mpth)
-  tro = training.ModelTrainer(fit,pickle_path=pp)
-  %time tro.train_model(*D["raw"]["tf"]) #4.5 mins
-ttl = "NPF: spatial, non-negative factors, Poisson likelihood"
-visualize.plot_loss(tro.loss,title=ttl)#,ss=range(2000,4000))
-#dev_npf=visualize.gof(fit,Dtr,Dval=Dval,title=ttl)
-#%% Postprocessing
-inpf = postprocess.interpret_npf(fit,Xtr,S=100,lda_mode=False)
-fig,axes=visualize.multiheatmap(Xtr, np.sqrt(inpf["factors"]), (4,3), figsize=(4,4),
-                                s=8, marker='$\u25AE$', subplot_space=0,
-                                spinecolor="white")
-fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_npf12_spde.pdf"),bbox_inches='tight')
-#%% Top genes for each latent dimensions
-topgenes = inpf["loadings"].argmax(axis=0).tolist()
-tgnames = ad.var_names[topgenes] #Hal is hepatocyte marker (2nd dim)
-
-#%% NPF Hybrid object
+#%% Factor Analysis (FA)
 L = 6
 try:
-  T = ceil(L/2)
-  pp = path.join(pth,"models/L{}/poi_sz-scanpy/NPFH_T{}_{}_M{}".format(L,T,ker.__name__, M))
+  pp = path.join(mpth,"L{}/gau/FA".format(L))
   tro = training.ModelTrainer.from_pickle(pp)
   fit = tro.model
 except FileNotFoundError:
-  fit = pfh.ProcessFactorizationHybrid(Ntr, J, L, Z, lik="poi", nonneg=True,
-                                       psd_kernel=ker)
-  fit.elbo_avg(**Dtr)
-  fit.init_loadings(Ytr,X=Xtr,sz=Dtr["sz"],shrinkage=0.2)
-  pp = fit.generate_pickle_path("scanpy",base=mpth)
+  fit = cf.CountFactorization(Ntr, J, L, lik="gau", nonneg=False,
+                              feature_means=fmeans)
+  fit.init_loadings(Dtr_c["Y"])
+  pp = fit.generate_pickle_path(base=mpth)
   tro = training.ModelTrainer(fit,pickle_path=pp)
-  %time tro.train_model(*D['raw']['tf']) #6min
-ttl = "NPFH: spatial, non-negative factors, Poisson likelihood"
-visualize.plot_loss(tro.loss,title=ttl)#,ss=range(200,240))
-#dev_npfh =visualize.gof(fit,Dtr,Dval=Dval,title=ttl)
-# %% NPFH: postprocess SPDE style
-hmkw = {"figsize":(6,2),"s":30,"marker":"$\u25AE$","subplot_space":0,"spinecolor":"white"}
-inpfh = postprocess.interpret_npfh(fit,Z,S=10,lda_mode=False)
-tgnames = [str(i) for i in range(1,T+1)]
-fig,axes=visualize.multiheatmap(Z, np.sqrt(inpfh["spatial"]["factors"]),
-                                (1,3), **hmkw)
-visualize.set_titles(fig, tgnames, x=0.05, y=.85, fontsize="medium", c="white",
+  %time tro.train_model(*Dtf_c)
+#%% plot posterior mean
+Hplot = misc.t2np(fit.sample_latent_factors(S=10))
+hmkw = {"figsize":(6,4),"s":30,"marker":"$\u25AE$","subplot_space":0,"spinecolor":"white"}
+fig,axes=visualize.multiheatmap(Z, ZX2@(Hplot-Hplot.mean(axis=0)), (2,3), **hmkw)
+tgnames = [str(i) for i in range(1,L+1)]
+visualize.set_titles(fig, tgnames, x=0.05, y=.85, fontsize="large", c="white",
                      ha="left", va="top")
-fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_npfh{}_spde_spat.pdf".format(L)),
+fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_fa{}.pdf".format(L)),
             bbox_inches='tight')
-# fig,axes=visualize.multiheatmap(Xtr, np.sqrt(inpfh["nonspatial"]["factors"]),
-#                                 (1,3), **hmkw)
-# visualize.set_titles(fig, tgnames, x=0.05, y=.85, fontsize="medium", c="white",
-#                      ha="left", va="top")
-# fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_npfh{}_spde_nsp.pdf".format(L)),
-#             bbox_inches='tight')
-#%% Top genes for each latent dimension
-inpfh = postprocess.interpret_npfh(fit,Xtr,S=10,lda_mode=False)
-W = inpfh["spatial"]["loadings"]#*inpf["totals"][:,None]
-W[np.isnan(W)] = 0.0
-V = inpfh["nonspatial"]["loadings"]
-V[np.isnan(V)] = 0.0
-topgenes = W.argmax(axis=0).tolist()
-tgnames = ad.var.index[topgenes]
-Ytg = Yz[:,topgenes]/(ZX@Dtr["sz"])
-fig,axes=visualize.multiheatmap(Z, np.sqrt(Ytg), (1,3), **hmkw)
-visualize.set_titles(fig, tgnames, x=0.44, y=.9, fontsize="medium", c="white",
-                     ha="left", va="top")
-fig.savefig(path.join(plt_pth,
-                      "xyz_liv_heatmap_npfh{}_spde_spat_genes.pdf".format(L)),
-            bbox_inches='tight')
-#save loadings to disk for further interpretation
-WV = np.hstack((W,V))*inpfh["totals"][:,None]
-WVdf=pd.DataFrame(WV, index=ad.var.index, columns=range(1,L+1))
-WVdf.to_csv(path.join(rpth,"xyz_liv_npfh{}_spde_loadings.csv".format(L)))
-#%% spatial importance per gene
-alpha = inpfh["spatial"]["loadings"].sum(axis=1)
-pd1 = pd.DataFrame({"gene":ad.var_names, "data":"xyzeq_liver",
-                    "L":L, "T":T, "spatial_wt":alpha})
-pd1.spatial_wt.hist(bins=100)
-pd1.to_csv(path.join(rpth,"NPFH_spatial_gene_weights_L{}_T{}.csv".format(L,T)),
-           index=False)
-# %% relative importance of each factor
-pd2 = postprocess.npfh_factor_importance(inpfh,lda_mode=False)
-pd2.plot.bar(x="factor_type",y="weight")
-pd2.to_csv(path.join(rpth,"NPFH_dim_weights_spde_L{}_T{}.csv".format(L,T)),
-           index=False)
 
-# %% Postprocess LDA style
-inpfh = postprocess.interpret_npfh(fit,Xtr,S=10,lda_mode=True)
-# fig,axes=visualize.multiheatmap(Xtr, np.sqrt(inpfh["spatial"]["factors"]),
-#                                 (2,4), **hmkw)
-# fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_npfh16_lda_spat.pdf"),bbox_inches='tight')
-# fig,axes=visualize.multiheatmap(Xtr, np.sqrt(inpfh["nonspatial"]["factors"]),
-#                                 (2,4), **hmkw)
-# fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_npfh16_lda_nsp.pdf"),bbox_inches='tight')
-#%% spatial importance per cell
-alpha = inpfh["spatial"]["factors"].sum(axis=1)
-pd1 = pd.DataFrame({"data":"xyzeq_liver", "L":L, "T":T, "spatial_wt":alpha})
-pd1.spatial_wt.hist(bins=100)
-pd1.to_csv(path.join(rpth,"NPFH_spatial_cell_weights_L{}_T{}.csv".format(L,T)),
-           index=False)
-# %% relative importance of each factor
-pd2 = postprocess.npfh_factor_importance(inpfh,lda_mode=True)
-pd2.plot.bar(x="factor_type",y="weight")
-pd2.to_csv(path.join(rpth,"NPFH_dim_weights_lda_L{}_T{}.csv".format(L,T)),
-           index=False)
+#%% Gaussian RSF
+L = 6
+try:
+  pp = path.join(mpth,"L{}/gau/RSF_{}_M{}".format(L,ker.__name__, M))
+  tro = training.ModelTrainer.from_pickle(pp)
+  fit = tro.model
+except FileNotFoundError:
+  Z = misc.kmeans_inducing_pts(Xtr, M)
+  fit = sf.SpatialFactorization(J,L,Z,psd_kernel=ker,nonneg=False,lik="gau",
+                                feature_means=fmeans)
+  fit.init_loadings(Dtr_c["Y"])
+  pp = fit.generate_pickle_path(base=mpth)
+  tro = training.ModelTrainer(fit,pickle_path=pp)
+  %time tro.train_model(*Dtf_c)
+#%% plot posterior mean
+hmkw = {"figsize":(6,4),"marker":"$\u25AE$","subplot_space":0,"spinecolor":"white"}
+irsf = postprocess.interpret_rsf(fit,Zg,S=10)
+Fplot = irsf["factors"]
+fig,axes=visualize.multiheatmap(Zg, Fplot-Fplot.mean(axis=0), (2,3), s=3, **hmkw)
+tgnames = [str(i) for i in range(1,L+1)]
+visualize.set_titles(fig, tgnames, x=0.05, y=.85, fontsize="large", c="black",
+                     ha="left", va="top")
+fig.savefig(path.join(plt_pth,"xyz_liv_heatmap_rsf{}.pdf".format(L)),
+            bbox_inches='tight')
+
+#%% MEFISTO
+from models import mefisto
+# D,fmeans = preprocess.load_data(dfile, model=None, lik=None, sz="constant")
+L=6
+M=288
+pp = path.join(mpth,"L{}/gau/MEFISTO_ExponentiatedQuadratic_M{}".format(L,M))
+try:
+  fit = mefisto.MEFISTO.from_pickle(pp)
+except FileNotFoundError:
+  fit = mefisto.MEFISTO(D["norm"]["tr"], L, inducing_pts=M, pickle_path=pp)
+  %time fit.train() #also saves to pickle file
+ttl = "MEFISTO"
+dev_mef = visualize.gof(fit,Dtr,Dval=D["raw"]["val"],title=ttl)
+
