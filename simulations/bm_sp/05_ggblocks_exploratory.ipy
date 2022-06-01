@@ -1,0 +1,156 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .ipy
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.6.0
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+# %%
+# import numpy as np
+from os import path
+from scanpy import read_h5ad
+from tensorflow_probability import math as tm
+tfk = tm.psd_kernels
+
+from utils import preprocess,training,misc,postprocess,visualize
+
+# rng = np.random.default_rng()
+pth = "simulations/bm_sp"
+dpth = path.join(pth,"data")
+mpth = path.join(pth,"models/S6/V5")
+plt_pth = path.join(pth,"results/plots")
+misc.mkdir_p(plt_pth)
+
+#%% Data loading
+ad = read_h5ad(path.join(dpth,"S6.h5ad"))
+N = ad.shape[0]
+Ntr = round(0.95*N)
+ad = ad[:Ntr,:]
+J = ad.shape[1]
+X = ad.obsm["spatial"]
+D_n,_ = preprocess.anndata_to_train_val(ad,train_frac=1.0,flip_yaxis=False)
+
+#%% Save heatmap of true values and sampled data
+hmkw = {"figsize":(8,1.9), "bgcol":"gray", "subplot_space":0.1, "marker":"s",
+        "s":2.9}
+Ftrue = ad.obsm["spfac"]
+fig,axes=visualize.multiheatmap(X, Ftrue, (1,4), cmap="Blues", **hmkw)
+fig.savefig(path.join(plt_pth,"ggblocks_true_factors.png"),bbox_inches='tight')
+
+Yss = ad.layers["counts"][:,(4,0,1,2)]
+fig,axes=visualize.multiheatmap(X, Yss, (1,4), cmap="Blues", **hmkw)
+fig.savefig(path.join(plt_pth,"ggblocks_data.png"),bbox_inches='tight')
+
+# %% Initialize inducing points
+L = 4
+M = N #number of inducing points
+Z = X
+ker = tfk.MaternThreeHalves
+
+#%% NSF
+try:
+  pp = path.join(mpth,"L{}/poi_sz-constant/NSF_{}_M{}".format(L,ker.__name__,M))
+  tro = training.ModelTrainer.from_pickle(pp)
+  fit = tro.model
+# except FileNotFoundError:
+#   fit = sf.SpatialFactorization(J,L,Z,psd_kernel=ker,nonneg=True,lik="poi")
+#   fit.init_loadings(D["Y"],X=X,sz=D["sz"],shrinkage=0.3)
+#   pp = fit.generate_pickle_path("constant",base=mpth)
+#   tro = training.ModelTrainer(fit,pickle_path=pp)
+#   %time tro.train_model(*Dtf) #12 mins
+insf = postprocess.interpret_nsf(fit,X,S=100,lda_mode=False)
+Fplot = insf["factors"][:,[3,1,2,0]]
+fig,axes=visualize.multiheatmap(X, Fplot, (1,4), cmap="Blues", **hmkw)
+fig.savefig(path.join(plt_pth,"ggblocks_nsf.png"),bbox_inches='tight')
+
+#%% PNMF
+try:
+  pp = path.join(mpth,"L{}/poi_sz-constant/PNMF".format(L))
+  tro = training.ModelTrainer.from_pickle(pp)
+  fit = tro.model
+# except FileNotFoundError:
+#   fit = cf.CountFactorization(N,J,L,nonneg=True,lik="poi")
+#   fit.init_loadings(D["Y"],sz=D["sz"],shrinkage=0.3)
+#   pp = fit.generate_pickle_path("constant",base=mpth)
+#   tro = training.ModelTrainer(fit,pickle_path=pp)
+#   %time tro.train_model(*Dtf) #3 mins
+ipnmf = postprocess.interpret_pnmf(fit,S=100,lda_mode=False)
+Fplot = ipnmf["factors"][:,[3,1,2,0]]
+fig,axes=visualize.multiheatmap(X, Fplot, (1,4), cmap="Blues", **hmkw)
+fig.savefig(path.join(plt_pth,"ggblocks_pnmf.png"),bbox_inches='tight')
+
+#%% MEFISTO-Gaussian
+from models.mefisto import MEFISTO
+pp = path.join(mpth,"L{}/gau/MEFISTO_ExponentiatedQuadratic_M{}".format(L,M))
+try:
+  mef = MEFISTO.from_pickle(pp)
+except FileNotFoundError:
+  mef = MEFISTO(D_n, L, inducing_pts=M, pickle_path=pp)
+  %time mef.train() #also saves to pickle file- 9min
+Fplot = mef.get_factors()
+fig,axes=visualize.multiheatmap(X, Fplot, (1,4), cmap="RdBu", **hmkw)
+fig.savefig(path.join(plt_pth,"ggblocks_mefisto.png"),bbox_inches='tight')
+
+#%% FA: Non-spatial, real-valued
+try:
+  pp = path.join(mpth,"L{}/gau/FA".format(L))
+  tro = training.ModelTrainer.from_pickle(pp)
+  fit = tro.model
+# except FileNotFoundError:
+#   fit = cf.CountFactorization(N, J, L, nonneg=False, lik="gau",
+#                               feature_means=fmeans)
+#   fit.init_loadings(D_c["Y"])
+#   pp = fit.generate_pickle_path(None,base=mpth)
+#   tro = training.ModelTrainer(fit,pickle_path=pp)
+#   %time tro.train_model(*Dtf_c) #14sec
+Fplot = postprocess.interpret_fa(fit,S=100)["factors"]
+fig,axes=visualize.multiheatmap(X, Fplot, (1,4), cmap="RdBu", **hmkw)
+fig.savefig(path.join(plt_pth,"ggblocks_fa.png"),bbox_inches='tight')
+
+#%% RSF
+try:
+  pp = path.join(mpth,"L{}/gau/RSF_{}_M{}".format(L,ker.__name__,M))
+  tro = training.ModelTrainer.from_pickle(pp)
+  fit = tro.model
+# except FileNotFoundError:
+#   fit = sf.SpatialFactorization(J,L,Z,psd_kernel=ker,nonneg=False,lik="gau")
+#   fit.init_loadings(D_c["Y"],X=X)
+#   pp = fit.generate_pickle_path(None,base=mpth)
+#   tro = training.ModelTrainer(fit,pickle_path=pp)
+#   %time tro.train_model(*Dtf_c) #5 mins
+Fplot = postprocess.interpret_rsf(fit,X,S=100)["factors"]
+fig,axes=visualize.multiheatmap(X, Fplot, (1,4), cmap="RdBu", **hmkw)
+fig.savefig(path.join(plt_pth,"ggblocks_rsf.png"),bbox_inches='tight')
+
+#%% Traditional scanpy analysis (unsupervised clustering)
+#https://scanpy-tutorials.readthedocs.io/en/latest/spatial/basic-analysis.html
+import pandas as pd
+import scanpy as sc
+sc.pp.pca(ad)
+sc.pp.neighbors(ad)
+sc.tl.umap(ad)
+sc.tl.leiden(ad, resolution=1.0, key_added="clusters")
+# plt.rcParams["figure.figsize"] = (4, 4)
+sc.pl.umap(ad, color="clusters", wspace=0.4)
+sc.pl.embedding(ad, "spatial", color="clusters")
+cl = pd.get_dummies(ad.obs["clusters"]).to_numpy()
+# tgnames = [str(i) for i in range(1,cl.shape[1]+1)]
+# hmkw = {"figsize":(7.7,5.9), "bgcol":"gray", "subplot_space":0.05, "marker":"s",
+#         "s":2.9}
+# hmkw = {"figsize":(6,4), "bgcol":"gray", "subplot_space":0.05, "marker":"s",
+#         "s":3.4}
+hmkw = {"figsize":(8,1.6), "bgcol":"gray", "subplot_space":0.05, "marker":"s",
+        "s":1.6}
+fig,axes=visualize.multiheatmap(X, cl, (1,5), cmap="Blues", **hmkw)
+# visualize.set_titles(fig, tgnames, x=0.03, y=.88, fontsize="small", c="white",
+#                      ha="left", va="top")
+fig.savefig(path.join(plt_pth,"ggblocks_scanpy_clusters.png"),
+            bbox_inches='tight')

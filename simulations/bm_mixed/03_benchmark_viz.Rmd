@@ -1,0 +1,64 @@
+---
+title: "Benchmarking Visualization"
+author: "Will Townes"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+theme_set(theme_bw())
+fp<-file.path
+pth<-"simulations/bm_mixed"
+plt_pth<-fp(pth,"results/plots")
+if(!dir.exists(plt_pth)){
+    dir.create(plt_pth,recursive=TRUE)
+}
+```
+
+```{r}
+d<-read.csv(fp(pth,"results/benchmark.csv"))
+d$converged<-as.logical(d$converged)
+d$model<-factor(d$model,levels=c("PNMF","NSF","NSFH"))
+sims<-c("ggblocks","quilt","both")
+d$sim<-factor(d$sim,levels=sims)
+d$simulation<-plyr::mapvalues(d$sim,sims,c("blocks (4+3)","quilt (4+3)","both (8+6)"))
+
+summarize_multicol<-function(x,f){
+  #x is a character column whose entries are lists of numbers "[3.02, 4.33, 7.71,...]"
+  #expand each entry into a vector and summarize it by 
+  #a function (f) like min, max, mean
+  #return a numeric vector with the summary stat, has same length as x
+  x<-sub("[","c(",x,fixed=TRUE)
+  x<-sub("]",")",x,fixed=TRUE)
+  vapply(x,function(t){f(eval(str2lang(t)))},FUN.VALUE=1.0)
+}
+
+d$factors_pearson_min<-summarize_multicol(d$factors_pearson,min)
+d$loadings_pearson_min<-summarize_multicol(d$loadings_pearson,min)
+d$factors_spearman_min<-summarize_multicol(d$factors_spearman,min)
+d$loadings_spearman_min<-summarize_multicol(d$loadings_spearman,min)
+```
+
+```{r}
+ggplot(d,aes(x=model,y=dev_val_mean,fill=simulation,color=simulation))+geom_boxplot()+scale_y_log10()+ylab("validation deviance (mean)")
+ggsave(fp(plt_pth,"bm_mixed_dev_val_mean.pdf"),width=5,height=2.5)
+
+ggplot(d,aes(x=model,y=factors_pearson_min,color=simulation,fill=simulation))+geom_boxplot()+scale_y_log10()+ylab("minimum factors correlation")
+ggsave(fp(plt_pth,"bm_mixed_factors_pcor_min.pdf"),width=5,height=2.5)
+
+ggplot(d,aes(x=model,y=loadings_pearson_min,fill=simulation,color=simulation))+geom_boxplot()+scale_y_log10()+ylab("minimum loadings correlation")
+ggsave(fp(plt_pth,"bm_mixed_loadings_pcor_min.pdf"),width=5,height=2.5)
+
+ggplot(d,aes(x=model,y=spatial_importance_dist,fill=simulation,color=simulation))+geom_boxplot()+ylab("spatial importance distance from truth")
+ggsave(fp(plt_pth,"bm_mixed_spat_importance_dist.pdf"),width=5,height=2.5)
+
+#ggplot(d,aes(x=model,y=loadings_clust_ari,fill=simulation,color=simulation))+geom_boxplot()+scale_y_log10()+ylab("Concordance of feature clusters with truth (ARI)")
+```
+
+Linear regressions to get statistical significance
+
+```{r}
+#NSFH vs NSF
+d$is_NSFH<-(d$model=="NSFH")
+summary(lm(dev_val_mean~is_NSFH+simulation,data=d))
+```

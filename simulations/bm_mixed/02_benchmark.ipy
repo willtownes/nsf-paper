@@ -1,0 +1,110 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .ipy
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.6.0
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+# %%
+from os import path
+# from copy import deepcopy
+# import numpy as np
+import pandas as pd
+# from matplotlib import pyplot as plt
+# from scipy.spatial.distance import pdist,cdist
+# from scipy.stats.stats import pearsonr,spearmanr
+# from sklearn.cluster import KMeans
+# from sklearn import metrics
+from scanpy import read_h5ad
+from tensorflow_probability import math as tm
+tfk = tm.psd_kernels
+
+from utils import training,postprocess,visualize
+# from simulations import sim
+pth = "simulations/bm_mixed"
+dpth = path.join(pth,"data")
+rpth = path.join(pth,"results")
+mpth = path.join(pth,"models")
+
+#%% Benchmarking at command line [markdown]
+"""
+To run on local computer, use
+`python -m simulations.benchmark 2 simulations/bm_mixed`
+where 2 is a row ID of benchmark.csv, min value 2, max possible value is 91
+
+To run on cluster first load anaconda environment
+```
+tmux
+interactive
+module load anaconda3/2021.5
+conda activate fwt
+python -m simulations.benchmark 2 simulations/bm_mixed
+```
+
+To run on cluster as a job array, subset of rows. Recommend 10min time limit.
+```
+PTH=./simulations/bm_mixed
+sbatch --mem=16G --array=5-91 ./simulations/benchmark.slurm $PTH
+```
+
+To run on cluster as a job array, all rows of CSV file
+```
+CSV=./simulations/bm_mixed/results/benchmark.csv
+PTH=./simulations/bm_mixed
+sbatch --mem=16G --array=1-$(wc -l < $CSV) ./simulations/benchmark.slurm $PTH
+```
+"""
+
+#%% Load dataset and set kernel and IPs
+ad = read_h5ad(path.join(dpth,"S1.h5ad"))
+#include only the training observations
+Ntr = round(0.95*ad.shape[0])
+ad = ad[:Ntr,:]
+X = ad.obsm["spatial"]
+#extract factors and loadings
+tru = postprocess.interpret_nonneg_mixed(ad.obsm["spfac"], ad.varm["spload"], 
+                                         ad.obsm["nsfac"],ad.varm["nsload"], 
+                                         lda_mode=False)
+F0 = tru["spatial"]["factors"]
+W0 = tru["spatial"]["loadings"]
+alpha = W0.sum(axis=1)
+pd1 = pd.DataFrame({"spatial_wt":alpha})
+pd1.spatial_wt.hist(bins=100) #spatial importance by feature
+#set hyperparams
+T = W0.shape[1]
+L = T+tru["nonspatial"]["loadings"].shape[1]
+M = 1296
+ker = tfk.MaternThreeHalves
+hmkw = {"figsize":(6,1.5),"s":1.5,"marker":"s","subplot_space":0,
+        "spinecolor":"gray"}
+fig,axes=visualize.multiheatmap(X, tru["spatial"]["factors"], (1,4), cmap="Blues", **hmkw)
+fig,axes=visualize.multiheatmap(X, tru["nonspatial"]["factors"], (1,4), cmap="Blues", **hmkw)
+
+#%% Compare inferred to true factors
+pp = path.join(mpth,"S1/V5/L{}/poi_sz-constant/NSFH_T{}_{}_M{}".format(L,T,ker.__name__, M))
+tro = training.ModelTrainer.from_pickle(pp)
+fit = tro.model
+insfh = postprocess.interpret_nsfh(fit,X)
+F = insfh["spatial"]["factors"]
+fig,axes=visualize.multiheatmap(X, F, (1,4), cmap="Blues", **hmkw)
+fig,axes=visualize.multiheatmap(X, insfh["nonspatial"]["factors"], (1,4), cmap="Blues", **hmkw)
+
+#%% Compute goodness-of-fit metrics
+"""
+```
+python -m simulations.benchmark_gof simulations/bm_mixed
+```
+or
+```
+PTH=./simulations/bm_mixed
+sbatch --mem=16G ./simulations/benchmark_gof.slurm $PTH
+```
+"""

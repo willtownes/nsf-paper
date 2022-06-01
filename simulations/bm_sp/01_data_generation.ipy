@@ -1,0 +1,73 @@
+# -*- coding: utf-8 -*-
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .ipy
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.6.0
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+# %%
+from os import path
+from copy import deepcopy
+import numpy as np
+import pandas as pd
+from scanpy import read_h5ad
+from janitor import expand_grid
+from utils import misc,visualize
+from simulations import sim
+pth = "simulations/bm_sp"
+dpth = path.join(pth,"data")
+rpth = path.join(pth,"results")
+mpth = path.join(pth,"models")
+# misc.mkdir_p(dpth) # or use symlink to dropbox
+# misc.mkdir_p(rpth)
+# misc.mkdir_p(mpth)
+
+# %% define scenarios
+cfg = {"sim":["quilt","ggblocks","both"], "nside":36, "bkg_mean":0.2,
+       "nb_shape":10.0, "Jsp":200, "Jmix":0, "Jns":0, "expr_mean":20.0,
+       "seed":[1,2,3,4,5], "V":5}
+a = expand_grid(others=cfg)
+b = pd.DataFrame({"sim":["quilt","ggblocks","both"], "L":[4,4,8]})
+a = a.merge(b,how="left",on="sim")
+a["scenario"] = list(range(1,a.shape[0]+1))
+a.to_csv(path.join(pth,"scenarios.csv"),index=False) #store separately for data generation
+
+# %% generate the simulated datasets and store to disk
+a = pd.read_csv(path.join(pth,"scenarios.csv")).convert_dtypes()
+def sim2disk(p):
+  p = deepcopy(p)
+  scen = p.pop("scenario")
+  ad = sim.sim(p["sim"], Lns=0, **p)
+  ad.write_h5ad(path.join(dpth,"S{}.h5ad".format(scen)),compression="gzip")
+a.apply(sim2disk,axis=1)
+
+# %% check the hdf5 file is correct
+ad = read_h5ad(path.join(dpth,"S1.h5ad"))
+X = ad.obsm["spatial"]
+Y = ad.layers["counts"]
+Yn = ad.X
+visualize.heatmap(X,Y[:,0],cmap="Blues")
+visualize.heatmap(X,Yn[:,0],cmap="Blues")
+#check distribution of validation data points
+N = Y.shape[0]
+z = np.zeros(N)
+Ntr = round(0.95*N)
+z[Ntr:] = 1
+visualize.heatmap(X,z,cmap="Blues")
+
+# %% merge with models to make results csv for tracking model runs
+m = pd.read_csv(path.join(pth,"models.csv")).convert_dtypes() #this CSV was manually created
+d = a.merge(m,how="cross")
+d["key"] = d.apply(misc.params2key,axis=1)
+d["key"] = d.agg(lambda x: f"S{x['scenario']}/{x['key']}", axis=1)
+# d["scenario"].to_string()+"/"+d["key"]
+d["converged"] = False
+d.to_csv(path.join(rpth,"benchmark.csv"),index=False)
