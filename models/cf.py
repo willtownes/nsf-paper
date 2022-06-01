@@ -79,8 +79,8 @@ class CountFactorization(tf.Module):
     Use either PCA or NMF to initialize the loadings matrix from data Y
     """
     if self.nonneg:
-      if nmf: init_ncf_with_nmf(self, Y, sz=sz, **kwargs)
-      else: init_ncf_rand(self, Y, sz=sz)
+      if nmf: init_pnmf_with_nmf(self, Y, sz=sz, **kwargs)
+      else: init_pnmf_rand(self, Y, sz=sz)
     else: #real-valued factors
       if self.lik in ("poi","nb"):
         pass #use GLM-PCA?
@@ -98,7 +98,7 @@ class CountFactorization(tf.Module):
       Parent directory for saving pickle files. The default is cwd.
     """
     pars = {"L":self.V.shape[1], "lik":self.lik, "sz":sz,
-            "model":"NCF" if self.nonneg else "RCF"
+            "model":"PNMF" if self.nonneg else "FA"
             }
     pth = misc.params2key(pars)
     if base: pth = path.join(base,pth)
@@ -241,7 +241,7 @@ class CountFactorization(tf.Module):
       Mu_val = None
     return Mu_tr,Mu_val
 
-def init_ncf_rand(fit, Y, X=None, sz=1):
+def init_pnmf_rand(fit, Y, X=None, sz=1):
   # V,vsum = postprocess.normalize_cols(fit.V.numpy().astype("float64"))
   V = fit.V.numpy()
   lvsum = np.log(V.sum(axis=0))
@@ -257,7 +257,7 @@ def init_ncf_rand(fit, Y, X=None, sz=1):
   # fit.ploc.assign(beta0,read_value=False)
   fit.qloc.assign(H,read_value=False)
 
-def init_ncf_with_nmf(fit, Y, X=None, sz=1, pseudocount=1e-2, factors=None,
+def init_pnmf_with_nmf(fit, Y, X=None, sz=1, pseudocount=1e-2, factors=None,
                       loadings=None, shrinkage=0.2):
   L = fit.V.shape[1]
   kw = likelihoods.choose_nmf_pars(fit.lik)

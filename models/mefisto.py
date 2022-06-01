@@ -126,8 +126,13 @@ class MEFISTO(object):
     sz_tr = Dtr["Y"].sum(axis=1)
     Mu_tr = self._reverse_normalization(Ftr@Wt, sz=sz_tr)
     if Dval:
-      self.ent.predict_factor(new_covariates=Dval["X"])
-      Fval = self.ent.Zpredictions['mean']
+      Xu,idx = np.unique(Dval["X"],axis=0,return_inverse=True)
+      if Xu.shape[0]<Dval["X"].shape[0]: #multiple observations at same spatial loc
+        self.ent.predict_factor(new_covariates=Xu)
+        Fval = self.ent.Zpredictions['mean'][idx,:]
+      else: #each obs has a unique spatial loc
+        self.ent.predict_factor(new_covariates=Dval["X"])
+        Fval = self.ent.Zpredictions['mean']
       sz_val = Dval["Y"].sum(axis=1)
       Mu_val = self._reverse_normalization(Fval@Wt, sz=sz_val)
     else:
