@@ -12,14 +12,15 @@ Will Townes and Barbara Engelhardt
 Gaussian processes are widely used for the analysis of spatial data due to their nonparametric flexibility and ability to quantify uncertainty, and recently developed scalable approximations have facilitated application to massive datasets. For multivariate outcomes, linear models of coregionalization combine dimension reduction with spatial correlation. However, their real-valued latent factors and loadings are difficult to interpret because, unlike nonnegative models, they do not recover a parts-based representation. We present nonnegative spatial factorization (NSF), a spatially-aware probabilistic dimension reduction model that naturally encourages sparsity. We compare NSF to real-valued spatial factorizations such as MEFISTO and nonspatial dimension reduction methods using simulations and high-dimensional spatial transcriptomics data. NSF identifies generalizable spatial patterns of gene expression. Since not all patterns of gene expression are spatial, we also propose a hybrid extension of NSF that combines spatial and nonspatial components, enabling quantification of spatial importance for both observations and features.
 
 ## Description of Repository Contents
+All scripts should be run from the top level directory.
 
 ### models
 
 TensorFlow implementations of probabilistic factor models
 * *cf.py* - nonspatial models (factor analysis and probabilistic nonnegative matrix factorization).
 * *mefisto.py* - wrapper around the MEFISTO implementation in the [mofapy2](https://github.com/bioFAM/mofapy2/commit/8f6ffcb5b18d22b3f44ff2a06bcb92f2806afed0) python package.
-* *pf.py* - nonnegative and real-valued spatial process factorization (NSF and RSF).
-* *pfh.py* - NSF hybrid model, includes both spatial and nonspatial components.
+* *sf.py* - nonnegative and real-valued spatial process factorization (NSF and RSF).
+* *sfh.py* - NSF hybrid model, includes both spatial and nonspatial components.
 
 ### scrna
 
@@ -30,7 +31,14 @@ Analysis of spatial transcriptomics data
 
 ### simulations
 
-Data generation and model fitting for the ggblocks and quilt simulations
+Data generation and model fitting for the ggblocks and quilt simulations.
+* *benchmark.py* - can be called as a command line script to facilitate benchmarking of large numbers of scenarios and parameter combinations.
+* *benchmark_gof.py* - compute goodness of fit and other metrics on fitted models.
+* *bm_mixed* - mixed spatial and nonspatial factors
+* *bm_sp* - spatial factors only. Within this folder, the notebooks
+`04_quilt_exploratory.ipy` and `05_ggblocks_exploratory.ipy` have many 
+visualizations of the various models compared in the paper.
+* *sim.py* - functions for creating the simulated datasets.
 
 ### utils
 
