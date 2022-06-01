@@ -25,10 +25,10 @@ Result:
 Pickled model naming conventions:
 
 file scheme for spatial models:
-[dataset]/models/L[factors]/[likelihood]/[model]_[kernel]_M[inducing_pts]/epoch[epoch].pickle
+[dataset]/models/V[val frac]/L[factors]/[likelihood]/[model]_[kernel]_M[inducing_pts]/epoch[epoch].pickle
 
 file scheme for nonspatial models:
-[dataset]/models/L[factors]/[model]/epoch[epoch].pickle
+[dataset]/models/V[val frac]/L[factors]/[model]/epoch[epoch].pickle
 
 Created on Sat Jun  5 14:30:05 2021
 
@@ -46,22 +46,31 @@ from janitor import expand_grid
 import tensorflow_probability as tfp
 tfk = tfp.math.psd_kernels
 
-from models import pf,cf,pfh,mefisto
+from models import sf,cf,sfh,mefisto
 from utils import training,misc
 from utils.preprocess import load_data
 from utils.visualize import gof,get_sparsity
 
 #file scheme for spatial models:
-#[dataset]/models/L[factors]/[likelihood]/[model]_[kernel]_M[inducing_pts]/epoch[epoch].pickle
+#[dataset]/models/V[validation data fraction]/L[factors]/[likelihood]/[model]_[kernel]_M[inducing_pts]/epoch[epoch].pickle
 #file scheme for nonspatial models:
-#[dataset]/models/L[factors]/[likelihood]/[model]/epoch[epoch].pickle
+#[dataset]/models/V[validation data fraction]/L[factors]/[likelihood]/[model]/epoch[epoch].pickle
 
-def make_param_df(L, sp_mods, ns_mods, M, sz):
-  cfg = {"L":L, "model":sp_mods+ns_mods}#,"nb"
+def make_param_df(L, sp_mods, ns_mods, M, sz, V=5, kernels=["MaternThreeHalves"]):
+  """
+  L: number of latent dimensions/ components
+  sp_mods: spatial models
+  ns_mods: nonspatial models
+  M: number of inducing points
+  sz: size factor scheme (eg "constant")
+  V: integer, percentage of data that is validation data (typically 5)
+  kernels: list of kernel names for spatial models
+  """
+  cfg = {"V":V,"L":L, "model":sp_mods+ns_mods}#,"nb"
   spatial_cfg = {"model":sp_mods,
-                 "kernel":["MaternThreeHalves"],
+                 "kernel":kernels,
                  "M":M}
-  mefisto_cfg = {"L":L,
+  mefisto_cfg = {"V":V,"L":L,
                  "model":["MEFISTO-G"],
                  "kernel":["ExponentiatedQuadratic"],
                  "M":M}
@@ -117,7 +126,7 @@ def correct_inducing_pts(csv_file, Ntr, ret=False):
 
 def choose_dataset(lik=None,model=None):
   if lik is None or lik=="gau":
-    if model is None or model in ("RPF","RCF"):
+    if model is None or model in ("RSF","FA"):
       use="ctr"
     else:
       use="norm"
@@ -152,18 +161,18 @@ def init_model(D,p,opath,fmeans=None):
     p['M']=Z.shape[0]
 
   #initialize the model object
-  nonneg = p['model'] in ("NPF","NCF","NPFH")
+  nonneg = p['model'] in ("NSF","PNMF","NSFH")
   # init_loadings_flag = True
-  if p['model'] in ("NPF","RPF"):
-    fit = pf.ProcessFactorization(J, L, Z, lik=p['lik'], psd_kernel=ker,
+  if p['model'] in ("NSF","RSF"):
+    fit = sf.SpatialFactorization(J, L, Z, lik=p['lik'], psd_kernel=ker,
                                   nugget=1e-5, length_scale=0.1, disp="default",
                                   nonneg=nonneg, isotropic=True,
                                   feature_means=fmeans)
-  elif p['model'] in ("NCF","RCF"):
+  elif p['model'] in ("PNMF","FA"):
     fit = cf.CountFactorization(Ntr, J, L, lik=p['lik'], nonneg=nonneg,
                                 disp="default", feature_means=fmeans)
-  elif p['model'] in ("NPFH","RPFH"):
-    fit = pfh.ProcessFactorizationHybrid(Ntr, J, L, Z, lik=p['lik'],
+  elif p['model'] in ("NSFH","RSFH"):
+    fit = sfh.SpatialFactorizationHybrid(Ntr, J, L, Z, lik=p['lik'],
                                          nonneg=nonneg, psd_kernel=ker,
                                          isotropic=True, nugget=1e-5,
                                          length_scale=0.1, disp="default",
@@ -194,6 +203,9 @@ def fit_model(D,fit,p,opath):
                     lr_reduce=0.5, maxtry=10)
     return tro
 
+def val2train_frac(V):
+  return (100.0-V)/100
+
 def benchmark(ID,dataset):
   """
   Run benchmarking on dataset for the model specified in benchmark.csv in row ID.
@@ -219,7 +231,9 @@ def benchmark(ID,dataset):
     return None
   else:
     print("Starting benchmark.")
-    D,fmeans = load_data(dataset,model=p['model'],lik=p['lik'],sz=p['sz'])
+    train_frac = val2train_frac(p["V"])
+    D,fmeans = load_data(dataset,model=p['model'],lik=p['lik'],sz=p['sz'],
+                         train_frac=train_frac)
     fit = init_model(D,p,opath,fmeans=fmeans)
     tro = fit_model(D,fit,p,opath)
     return tro
@@ -243,34 +257,47 @@ def get_metrics(fit,Dtr,Dval=None,tro=None):
     res["epochs"] = fit.epoch
     res["ptime"] = fit.ptime
     res["wtime"] = fit.wtime
+    res["elbo_avg_tr"] = fit.elbos[-1]/Dtr["Y"].shape[0]
   else:
     res["converged"] = tro.converged
     res["epochs"] = tro.epoch.numpy()
     res["ptime"] = tro.ptime.numpy()
     res["wtime"] = tro.wtime.numpy()
+    res["elbo_avg_tr"] = -fit.validation_step(Dtr, S=10).numpy()
+    if Dval:
+      res["elbo_avg_val"] = -fit.validation_step(Dval, S=10).numpy()
   dev = gof(fit,Dtr,Dval=Dval,S=10,plot=False)
   for i in dev["tr"]:
     res["dev_tr_"+i] = dev["tr"][i]
+  res["rmse_tr"] = dev["rmse_tr"]
   with suppress(KeyError):
     for i in dev["val"]:
       res["dev_val_"+i] = dev["val"][i]
+    res["rmse_val"] = dev["rmse_val"]
   res["sparsity"] = get_sparsity(fit)
   return res
 
-def update_results(dataset,todisk=True,verbose=True):
+def update_results(dataset,val_pct=5,todisk=True,verbose=True):
   # dataset = "scrna/visium_brain_sagittal/data/visium_brain_sagittal_J2000.h5ad"
   dsplit = dataset.split("/data/")
   pth = dsplit[0]
   csv_file = path.join(pth,"results/benchmark.csv")
   res = pd.read_csv(csv_file)
-  D,fmeans=load_data(dataset,model=None,lik=None,sz="constant")
-  #Dsz_sc is the same data for lik=(nb,poi) and model=(NPF,NCF,NPFH)
-  Dsz_sc,fmeans2 = load_data(dataset,model="NPF",lik="poi",sz="scanpy")
+  train_frac = val2train_frac(val_pct)
+  D,fmeans = load_data(dataset, model=None, lik=None, sz="constant",
+                       train_frac=train_frac)
+  #Dsz_sc is the same data for lik=(nb,poi) and model=(NSF,PNMF,NSFH)
+  Dsz_sc,fmeans2 = load_data(dataset, model="NSF", lik="poi", sz="scanpy",
+                             train_frac=train_frac)
   # mnames = ["epochs","ptime","wtime","dev_tr","dev_val"]
+  #row = res.iloc[149,:]
   def row_metrics(row):
     row = dict(row) #originally row is a pandas.Series object
     # metrics = row[["converged"]+mnames] #old values
-    if not "converged" in row or not row['converged']:# or row[mnames].isnull().any():
+    if row["V"]!=val_pct: #skip rows with different val pct
+      return row
+    # or not row['converged']
+    if not "converged" in row or pd.isnull(row["converged"]):# or row[mnames].isnull().any():
       pkl = path.join(pth,"models",row["key"])
       # use = choose_dataset(lik=row['lik'],model=row['model'])
       DD = Dsz_sc if row["sz"]=="scanpy" else D

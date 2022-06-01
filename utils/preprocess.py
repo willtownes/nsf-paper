@@ -184,14 +184,19 @@ def prepare_datasets_tf(Dtrain,Dval=None,shuffle=False,batch_size=None):
     Dval = {i:constant(Dval[i]) for i in Dval}
   return Dtrain, Ntr, Dval
 
-def load_data(dfile, model=None, lik=None, train_frac=0.95, sz="constant"):
+def load_data(dataset, model=None, lik=None, train_frac=0.95, sz="constant", 
+              flip_yaxis=True):
   """
-  DATASET: the file path of a scanpy anndata h5ad file
+  dataset: the file path of a scanpy anndata h5ad file 
+  --OR-- the AnnData object itself
   p: a dict-like object of model parameters
   """
-  ad = read_h5ad(path.normpath(dfile))
+  try:
+    ad = read_h5ad(path.normpath(dataset))
+  except TypeError:
+    ad = dataset
   kw1 = {"nfeat":None, "train_frac":train_frac, "dtp":"float32",
-         "flip_yaxis":True}
+         "flip_yaxis":flip_yaxis}
   kw2 = {"shuffle":False,"batch_size":None}
   D = {"raw":{}}
   Dtr,Dval = anndata_to_train_val(ad,layer="counts",sz=sz,**kw1)
@@ -206,7 +211,7 @@ def load_data(dfile, model=None, lik=None, train_frac=0.95, sz="constant"):
     D["norm"]["tr"] = Dtr_n
     D["norm"]["val"] = Dval_n
     D["norm"]["tf"] = prepare_datasets_tf(Dtr_n,Dval=Dval_n,**kw2)
-    if model is None or model in ("RPF","RCF"):
+    if model is None or model in ("RSF","FA"):
       #centered features
       fmeans,Dtr_c,Dval_c = center_data(Dtr_n,Dval_n)
       D["ctr"] = {}

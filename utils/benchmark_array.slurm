@@ -3,7 +3,7 @@
 #SBATCH --nodes=1                # node count
 #SBATCH --ntasks=1               # total number of tasks across all nodes
 #SBATCH --cpus-per-task=12       # cpu-cores per task (>1 if multi-threaded tasks)
-#SBATCH --time=06:00:00          # total run time limit (HH:MM:SS)
+#SBATCH --time=12:00:00          # total run time limit (HH:MM:SS)
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=ftownes@princeton.edu
 

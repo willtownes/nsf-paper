@@ -54,7 +54,10 @@ def poisson_deviance(y,mu,agg="sum",axis=None):
       raise ValueError("agg must be 'sum' or 'mean'")
     term1 = aggfunc(term1[np.isfinite(term1)], axis=axis)
     return term1 + aggfunc(mu - y, axis=axis)
-  
+
+def rmse(y,mu):
+  return np.sqrt(((y-mu)**2).mean())
+
 def dev2ss(dev):
   """
   dev: a 1d array of deviance values (one per feature)
@@ -165,26 +168,31 @@ def t2np(X):
 def params2key(p):
   """
   p: a dict with keys L, lik, model, sz and optionally
-  kernel and M
+  kernel, M, and V
 
   returns a string for the pickle path
   """
   if p["lik"] in ("poi","nb"):
     p = deepcopy(p)
-    p["lik"] = p["lik"]+"_sz-"+p["sz"]    
+    p["lik"] = p["lik"]+"_sz-"+p["sz"]
   m = p["model"]
   fmt = "L{L}/{lik}/{model}"
-  if m in ("NCF","RCF"):
+  if "V" in p:
+    fmt = "V{V}/"+fmt
+  if m in ("PNMF","FA"):
     pass
-  elif m in ("NPF","RPF","MEFISTO"):
+  elif m in ("NSF","RSF","MEFISTO"):
     fmt+="_{kernel}_M{M}"
-  elif m in ("NPFH","RPFH"):
+  elif m in ("NSFH","RSFH"):
     fmt+="_T{T}_{kernel}_M{M}"
     if "T" not in p:
       p = deepcopy(p)
       p["T"] = ceil(p["L"]/2.)
   else:
     raise ValueError("Invalid model {}".format(m))
+  #handle case where
+  # if "M" in p:
+  #   p["M"] = round(p["M"]) #make sure M is an integer
   return fmt.format(**p)
 
 def read_csv_oneline(csv_file,row_id):
@@ -203,19 +211,29 @@ def read_csv_oneline(csv_file,row_id):
   #returns a pandas Series object
   return pd_read_csv(csv_file,skiprows=skip,nrows=1).iloc[0,:]
 
-def dims_autocorr(factors,coords):
+def dims_autocorr(factors,coords,sort=True):
   """
   factors: (num observations) x (num latent dimensions) array
   coords: (num observations) x (num spatial dimensions) array
+  sort: if True (default), returns the index and I statistics in decreasing
+    order of autocorrelation. If False, returns the index and I statistics
+    according to the ordering of factors.
 
   returns: an integer array of length (num latent dims), "idx"
     and a numpy array containing the Moran's I values for each dimension
 
-    indexing factors[:,idx] will sort the factors in decreasing order of spatial 
+    indexing factors[:,idx] will sort the factors in decreasing order of spatial
     autocorrelation.
   """
   ad = AnnData(X=factors,obsm={"spatial":coords})
   spatial_neighbors(ad)
   df = spatial_autocorr(ad,mode="moran",copy=True)
+  if not sort: #revert to original sort order
+    df.sort_index(inplace=True)
   idx = np.array([int(i) for i in df.index])
   return idx,df["I"].to_numpy()
+
+def nan_to_zero(X):
+  X = deepcopy(X)
+  X[np.isnan(X)] = 0
+  return X

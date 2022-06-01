@@ -3,7 +3,7 @@
 #SBATCH --nodes=1                # node count
 #SBATCH --ntasks=1               # total number of tasks across all nodes
 #SBATCH --cpus-per-task=12       # cpu-cores per task (>1 if multi-threaded tasks)
-#SBATCH --time=1:00:00          # total run time limit (HH:MM:SS)
+#SBATCH --time=3:00:00          # total run time limit (HH:MM:SS)
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=ftownes@princeton.edu
 
@@ -16,4 +16,5 @@ module load anaconda3/2021.5
 conda activate fwt
 
 #first command line arg $1 is file path to dataset
-python -um utils.benchmark_gof $1
+#second command line arg $2 is an integer for the pct of data to be validation set (typically 5, implying 95% of observations are for training data)
+python -um utils.benchmark_gof $1 $2
