@@ -1,0 +1,5 @@
+*.jpg binary
+*.png binary
+*.pdf binary
+*.RData binary
+*.h5ad binary
