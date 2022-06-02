@@ -1,7 +1,7 @@
 # Added by WT
 .ipynb_checkpoints/
-data
-plots
+# data
+# plots
 model_checkpoints
 *.rds
 .spyproject
