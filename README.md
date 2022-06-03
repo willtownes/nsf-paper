@@ -11,8 +11,12 @@ Will Townes and Barbara Engelhardt
 
 Gaussian processes are widely used for the analysis of spatial data due to their nonparametric flexibility and ability to quantify uncertainty, and recently developed scalable approximations have facilitated application to massive datasets. For multivariate outcomes, linear models of coregionalization combine dimension reduction with spatial correlation. However, their real-valued latent factors and loadings are difficult to interpret because, unlike nonnegative models, they do not recover a parts-based representation. We present nonnegative spatial factorization (NSF), a spatially-aware probabilistic dimension reduction model that naturally encourages sparsity. We compare NSF to real-valued spatial factorizations such as MEFISTO and nonspatial dimension reduction methods using simulations and high-dimensional spatial transcriptomics data. NSF identifies generalizable spatial patterns of gene expression. Since not all patterns of gene expression are spatial, we also propose a hybrid extension of NSF that combines spatial and nonspatial components, enabling quantification of spatial importance for both observations and features.
 
+## Demo
+
+A basic demonstration (**demo.ipynb**) using simulated data is provided as a [jupyter notebook](https://jupyter.org). The expected output is a series of heatmap plots. The runtime should be about 5 minutes.
+
 ## Description of Repository Contents
-All scripts should be run from the top level directory.
+All scripts should be run from the top level directory. Files with the suffix `.ipy` are essentially text-only versions of jupyter notebooks and can best be used through the [Spyder IDE](https://www.spyder-ide.org). They can be converted to full jupyter notebooks using [jupytext](https://jupytext.readthedocs.io/en/latest/).
 
 ### models
 
@@ -57,10 +61,22 @@ Python modules containing functions and classes needed by scripts and model impl
 We used the following versions in our analyses: Python 3.8.10, tensorflow 2.5.0, tensorflow probability 0.13.0, scanpy 1.8.0, squidpy 1.1.0, scikit-learn 0.24.2, pandas 1.2.5, numpy 1.19.5, scipy 1.7.0. 
 We used the MEFISTO implementation from the mofapy2 Python package, installed from the GitHub development branch at commit 8f6ffcb5b18d22b3f44ff2a06bcb92f2806afed0.
 
-```
+```Shell
 pip install git+git://github.com/bioFAM/mofapy2.git@8f6ffcb5b18d22b3f44ff2a06bcb92f2806afed0
 ```
 
 Graphics were generated using either matplotlib 3.4.2 in Python or ggplot2 3.3.5 in R (version 4.1.0). The R packages Seurat 0.4.3, SeuratData 0.2.1, and SeuratDisk 0.0.0.9019 were used for some initial data manipulations.
 
 Computationally-intensive model fitting was done on Princeton's [Della cluster](https://researchcomputing.princeton.edu/systems/della). Analyses that were less computationally intensive were done on personal computers with operating system MacOS version 12.4.
+
+## Installation
+
+```Shell
+git clone https://github.com/willtownes/nsf-paper.git
+```
+
+This should only take a few seconds on an ordinary computer with a good internet connection.
+
+## Instructions for use
+
+Data should be stored as a Scanpy AnnData object with the raw counts in the layer "counts" and spatial coordinates in the obsm["spatial"] slot. Utility functions to convert this into the required Tensorflow objects for model fitting are demonstrated in the demo. To reproduce results from the manuscript, use the numbered ipython scripts in each dataset's subfolder. Intermediate results from benchmarking are cached in `results/benchmark.csv` files which can be used to produce many of the plots in the manuscript.
