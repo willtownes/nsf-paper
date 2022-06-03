@@ -13,7 +13,7 @@ Gaussian processes are widely used for the analysis of spatial data due to their
 
 ## Demo
 
-A basic demonstration (**demo.ipynb**) using simulated data is provided as a [jupyter notebook](https://jupyter.org). The expected output is a series of heatmap plots. The runtime should be about 5 minutes.
+A basic demonstration ([**demo.ipynb**](https://github.com/willtownes/nsf-paper/blob/main/demo.ipynb)) using simulated data is provided as a [jupyter](https://jupyter.org) notebook. The expected output is a series of heatmap plots. The runtime should be about 5 minutes.
 
 ## Description of Repository Contents
 All scripts should be run from the top level directory. Files with the suffix `.ipy` are essentially text-only versions of jupyter notebooks and can best be used through the [Spyder IDE](https://www.spyder-ide.org). They can be converted to full jupyter notebooks using [jupytext](https://jupytext.readthedocs.io/en/latest/).
