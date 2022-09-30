@@ -1,5 +1,7 @@
 # Nonnegative spatial factorization for multivariate count data
 
+[![DOI](https://zenodo.org/badge/415147174.svg)](https://zenodo.org/badge/latestdoi/415147174)
+
 This repository contains supporting code to facilitate reproducible analysis. For details see the [preprint](https://arxiv.org/abs/2110.06122). If you find bugs please create a github issue. An [installable python package](https://github.com/willtownes/spatial-factorization-py) 
 is also under development.
 
