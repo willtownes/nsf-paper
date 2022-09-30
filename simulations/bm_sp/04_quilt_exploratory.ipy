@@ -44,10 +44,14 @@ hmkw = {"figsize":(8,1.9), "bgcol":"gray", "subplot_space":0.1, "marker":"s",
 Ftrue = ad.obsm["spfac"]
 fig,axes=visualize.multiheatmap(X, Ftrue, (1,4), cmap="Blues", **hmkw)
 fig.savefig(path.join(plt_pth,"quilt_true_factors.png"),bbox_inches='tight')
+# fig.savefig(path.join(plt_pth,"quilt_true_factors.pdf"),bbox_inches='tight')
+#saving directly to pdf looks weird. Try imagemagick instead
+#convert quilt_true_factors.png quilt_true_factors.pdf
 
 Yss = ad.layers["counts"][:,(4,0,1,2)]
 fig,axes=visualize.multiheatmap(X, Yss, (1,4), cmap="Blues", **hmkw)
 fig.savefig(path.join(plt_pth,"quilt_data.png"),bbox_inches='tight')
+# fig.savefig(path.join(plt_pth,"quilt_data.pdf"),bbox_inches='tight')
 
 # %% Initialize inducing points
 L = 4

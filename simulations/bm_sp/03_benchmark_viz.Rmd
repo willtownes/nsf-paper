@@ -40,13 +40,13 @@ d$loadings_spearman_min<-summarize_multicol(d$loadings_spearman,min)
 ```
 
 ```{r}
-ggplot(d,aes(x=model,y=dev_val_mean,fill=simulation,color=simulation))+geom_boxplot()+scale_y_log10()+ylab("validation deviance (mean)")
+ggplot(d,aes(x=model,y=dev_val_mean,color=simulation))+geom_point(size=3,position=position_jitterdodge())+scale_y_log10()+ylab("validation deviance (mean)")
 ggsave(fp(plt_pth,"bm_sp_dev_val_mean.pdf"),width=5,height=2.5)
 
-ggplot(d,aes(x=model,y=factors_pearson_min,color=simulation,fill=simulation))+geom_boxplot()+scale_y_log10()+ylab("minimum factors correlation")
+ggplot(d,aes(x=model,y=factors_pearson_min,color=simulation))+geom_point(size=3,position=position_jitterdodge())+scale_y_log10()+ylab("minimum factors correlation")
 ggsave(fp(plt_pth,"bm_sp_factors_pcor_min.pdf"),width=5,height=2.5)
 
-ggplot(d,aes(x=model,y=loadings_pearson_min,fill=simulation,color=simulation))+geom_boxplot()+scale_y_log10()+ylab("minimum loadings correlation")
+ggplot(d,aes(x=model,y=loadings_pearson_min,color=simulation))+geom_point(size=3,position=position_jitterdodge())+scale_y_log10()+ylab("minimum loadings correlation")
 ggsave(fp(plt_pth,"bm_sp_loadings_pcor_min.pdf"),width=5,height=2.5)
 
 #ggplot(d,aes(x=model,y=factors_spearman_min,fill=simulation,color=simulation))+geom_boxplot()+scale_y_log10()+ylab("Spearman correlation with true factors")
