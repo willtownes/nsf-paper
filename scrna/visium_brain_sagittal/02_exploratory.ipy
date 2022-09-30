@@ -206,6 +206,18 @@ res = pd.DataFrame({"component":Fnames+Hnames,"moran_i":np.concatenate((Fac,Hac)
 res.plot.bar(x="component",y="moran_i")
 res.to_csv(path.join(rpth,"NSFH_dim_autocorr_spde_L{}_T{}.csv".format(L,T)),
            index=False)
+#%% Plot genes with low spatial importance (compare to Hotspot)
+genes = ["Hba-a1","Hbb-bs"]
+gid = np.where(ad.var_names.isin(genes))[0]
+Ytg = Dtr["Y"][:,gid]/Dtr["sz"]
+hmkw = {"figsize":(6,2), "s":0.5, "marker":"D", "subplot_space":0,
+        "spinecolor":"white"}
+fig,axes=visualize.multiheatmap(Xtr, np.sqrt(Ytg), (1,2), **hmkw)
+visualize.set_titles(fig, genes, x=0.05, y=.85, fontsize="medium", c="white",
+                     ha="left", va="top")
+fig.savefig(path.join(plt_pth,
+                      "vz_brn_heatmap_nsfh20_spde_least_spatial_genes.pdf"),
+            bbox_inches='tight')
 
 # %% NSFH: Postprocess LDA style
 insfh = postprocess.interpret_nsfh(fit,Xtr,S=10,lda_mode=True)

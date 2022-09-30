@@ -147,3 +147,15 @@ ggsave(fp(plt_pth,"vz_brn_gof_dev_val_kernels.pdf"),width=5,height=2.5)
 ggplot(d2,aes(x=model,y=rmse_val,color=dim,shape=kernel))+geom_point(size=6,position=position_dodge(width=0.7))+ylab("validation RMSE")+ylim(range(d2$rmse_val)*c(.95,1.02))
 ggsave(fp(plt_pth,"vz_brn_gof_rmse_val_kernels.pdf"),width=5,height=2.5)
 ```
+
+numerical stability of different kernel choices
+```{r}
+d0<-read.csv(fp(pth,"results/benchmark.csv"))
+d0$converged<-as.logical(d0$converged)
+table(d0$converged)
+d1<-subset(d0,V==5)# & M==2363)
+d1a<-subset(d1,model=="RSF" & lik=="gau")
+d1b<-subset(d1,model %in% c("NSF","NSFH") & lik=="poi")
+d<-rbind(d1a,d1b)
+d2 <- d %>% group_by(kernel,M,model,lik) %>% summarize(total_runs=length(converged),converged=sum(converged))
+```

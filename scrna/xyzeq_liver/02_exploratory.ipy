@@ -156,6 +156,19 @@ res = pd.DataFrame({"component":Fnames+Hnames,"moran_i":np.concatenate((Fac,Hac)
 res.plot.bar(x="component",y="moran_i")
 res.to_csv(path.join(rpth,"NSFH_dim_autocorr_spde_L{}_T{}.csv".format(L,T)),
            index=False)
+#%% Plot genes with low spatial importance (compare to Hotspot)
+genes = ["Arhgap15","Dock10","Myo1f","Ccr5"]
+gid = np.where(ad.var_names.isin(genes))[0]
+Ytg = Yz[:,gid]/(ZX@Dtr["sz"])
+hmkw = {"figsize":(6,1.8),"subplot_space":0,"spinecolor":"white",
+        "marker":"$\u25AE$","s":15}
+fig,axes=visualize.multiheatmap(Z, np.sqrt(Ytg), (1,4), **hmkw)
+visualize.set_titles(fig, genes, x=0.44, y=.9, fontsize="medium", c="white",
+                     ha="left", va="top")
+fig.savefig(path.join(plt_pth,
+                      "xyz_liv_heatmap_nsfh6_spde_least_spatial_genes.pdf"),
+            bbox_inches='tight')
+
 # %% Postprocess LDA style
 insfh = postprocess.interpret_nsfh(fit,Xtr,S=10,lda_mode=True)
 # fig,axes=visualize.multiheatmap(Xtr, np.sqrt(insfh["spatial"]["factors"]),
@@ -308,4 +321,3 @@ except FileNotFoundError:
   %time fit.train() #also saves to pickle file
 ttl = "MEFISTO"
 dev_mef = visualize.gof(fit,Dtr,Dval=D["raw"]["val"],title=ttl)
-

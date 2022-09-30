@@ -30,6 +30,7 @@ dtp = "float32"
 pth = "scrna/sshippo"
 dpth = path.join(pth,"data")
 mpth = path.join(pth,"models/V5")
+#mpth = "/Volumes/Princeton_research_files/spatial-tx/scrna/sshippo/models/V5"
 rpth = path.join(pth,"results")
 plt_pth = path.join(rpth,"plots")
 
@@ -79,7 +80,7 @@ try:
   insfh = misc.unpickle_from_file(path.join(mpth,"insfh_L20_M3000_spde.pickle"))
 except FileNotFoundError:
   insfh = postprocess.interpret_nsfh(fit,Xtr,S=10,lda_mode=False)
-  misc.pickle_to_file(insfh,path.join(mpth,"insfh_L20_M3000_spde.pickle")) 
+  misc.pickle_to_file(insfh,path.join(mpth,"insfh_L20_M3000_spde.pickle"))
 tgnames = [str(i) for i in range(1,T+1)]
 fig,axes=visualize.multiheatmap(Xtr, np.sqrt(insfh["spatial"]["factors"]),
                                 (2,5), **hmkw)
@@ -132,6 +133,17 @@ res = pd.DataFrame({"component":Fnames+Hnames,"moran_i":np.concatenate((Fac,Hac)
 res.plot.bar(x="component",y="moran_i")
 res.to_csv(path.join(rpth,"NSFH_dim_autocorr_spde_L{}_T{}.csv".format(L,T)),
            index=False)
+#%% Plot genes with low spatial importance (compare to Hotspot)
+genes = ["SST","NPY","GAD2"]
+gid = np.where(ad.var_names.isin(genes))[0]
+Ytg = Dtr["Y"][:,gid]/Dtr["sz"]
+hmkw = {"figsize":(6,2),"s":0.1,"marker":".","subplot_space":0,
+        "spinecolor":"white"}
+fig,axes=visualize.multiheatmap(Xtr, np.sqrt(Ytg), (1,3), **hmkw)
+visualize.set_titles(fig, genes, x=0.02, y=.88, fontsize="x-small", c="white",
+                     ha="left", va="top")
+fig.savefig(path.join(plt_pth,"sshippo_heatmap_nsfh20_spde_least_spatial_genes.pdf"),
+            bbox_inches='tight')#, dpi=300)
 
 # %% NSFH: postprocess LDA style
 insfh = postprocess.interpret_nsfh(fit,Xtr,S=10,lda_mode=True)
@@ -234,5 +246,3 @@ visualize.set_titles(fig, tgnames, x=0.03, y=.88, fontsize="small", c="white",
                      ha="left", va="top")
 fig.savefig(path.join(plt_pth,"sshippo_heatmap_rsf20.png"),
             bbox_inches='tight', dpi=300)
-
-
