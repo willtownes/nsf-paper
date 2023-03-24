@@ -1,0 +1,10 @@
+tensorflow==2.5.0
+tensorflow-probability==0.13.0
+scanpy==1.8.0
+squidpy==1.1.0
+scikit-learn==0.24.2
+pandas==1.2.5
+numpy==1.19.5
+scipy==1.7.0
+matplotlib==3.4.2
+git+git://github.com/bioFAM/mofapy2.git@8f6ffcb5b18d22b3f44ff2a06bcb92f2806afed0
